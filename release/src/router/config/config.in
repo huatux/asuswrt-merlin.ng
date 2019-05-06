@@ -353,6 +353,10 @@ config RTCONFIG_YANDEXDNS
 	depends on !RTCONFIG_DNSFILTER
 	default n
 
+config RTCONFIG_DNSPRIVACY
+	bool "DNS-over-TLS Support"
+	default n
+
 config RTCONFIG_DSL
 	bool "DSL Support"
 	default n
@@ -1638,6 +1642,10 @@ config RTCONFIG_DNSFILTER
 	depends on !RTCONFIG_YANDEXDNS
 	default n
 
+config RTCONFIG_OPENSSL11
+	bool "OpenSSL 1.1.x"
+	default n
+
 config RTCONFIG_LETSENCRYPT
 	bool "Let's Encrypt"
 	depends on RTCONFIG_HTTPS && (RTCONFIG_JFFS2 || RTCONFIG_BRCM_NAND_JFFS2 || RTCONFIG_UBIFS)
@@ -1782,4 +1790,8 @@ config RTCONFIG_LIBASUSLOG
 
 config RTCONFIG_ETHOBD
 	bool "ethernet onboarding for Aimash."
+	default n
+
+config RTCONFIG_NTPD
+	bool "ntp & ntpd support"
 	default n

@@ -899,7 +899,7 @@ handle_request(void)
 				alang = &cur[16];
 				strncpy(lang_buf, alang, sizeof(lang_buf)-1);
 				p = lang_buf;
-				while (p != NULL)
+				while (p != NULL && (p - lang_buf) < sizeof(lang_buf))
 				{
 					p = strtok (p, "\r\n ,;");
 					if (p == NULL)  break;
@@ -1924,12 +1924,6 @@ search_desc (pkw_t pkw, char *name)
 #endif
 #endif //TRANSLATE_ON_FLY
 
-void reapchild()	// 0527 add
-{
-	signal(SIGCHLD, reapchild);
-	wait(NULL);
-}
-
 int main(int argc, char **argv)
 {
 	usockaddr usa;
@@ -2005,7 +1999,7 @@ int main(int argc, char **argv)
 
 	/* Ignore broken pipes */
 	signal(SIGPIPE, SIG_IGN);
-	signal(SIGCHLD, reapchild);	// 0527 add
+	signal(SIGCHLD, chld_reap);
 
 #ifdef RTCONFIG_HTTPS
 	//if (do_ssl)
@@ -2181,8 +2175,8 @@ int main(int argc, char **argv)
 void save_cert(void)
 {
 #if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
-	eval("cp", "-p", "/etc/cert.pem", "/etc/key.pem", "/jffs/ssl/");
-	chmod("/jffs/ssl/key.pem", S_IRUSR|S_IWUSR);
+	eval("cp", "-p", "/etc/cert.pem", "/etc/key.pem", "/jffs/.cert/");
+	chmod("/jffs/.cert/key.pem", S_IRUSR|S_IWUSR);
 #else
 	if (eval("tar", "-C", "/", "-czf", "/tmp/cert.tgz", "etc/cert.pem", "etc/key.pem") == 0) {
 		if (nvram_set_file("https_crt_file", "/tmp/cert.tgz", 8192)) {
@@ -2206,6 +2200,7 @@ void erase_cert(void)
 #endif
 	//nvram_unset("https_crt_gen");
 	nvram_set("https_crt_gen", "0");
+	nvram_commit();
 }
 
 void start_ssl(void)
@@ -2213,6 +2208,8 @@ void start_ssl(void)
 	int lockfd;
 	int retry;
 	int i;
+	unsigned long long sn;
+	char t[32];
 
 	lockfd = open("/var/lock/sslinit.lock", O_CREAT | O_RDWR, 0666);
 
@@ -2235,7 +2232,12 @@ void start_ssl(void)
 		if ((!f_exists("/etc/cert.pem")) || (!f_exists("/etc/key.pem"))) {
 			erase_cert();
 			logmessage("httpd", "Generating SSL certificate...");
-			eval("gencert.sh", "web");
+
+			// browsers seems to like this when the ip address moves...     -- zzz
+			f_read("/dev/urandom", &sn, sizeof(sn));
+
+			sprintf(t, "%llu", sn & 0x7FFFFFFFFFFFFFFFULL);
+			eval("gencert.sh", t);
 
 #ifdef RTCONFIG_LETSENCRYPT
 			if (nvram_match("le_enable", "2"))

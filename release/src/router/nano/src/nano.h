@@ -1,7 +1,7 @@
 /**************************************************************************
  *   nano.h  --  This file is part of GNU nano.                           *
  *                                                                        *
- *   Copyright (C) 1999-2011, 2013-2018 Free Software Foundation, Inc.    *
+ *   Copyright (C) 1999-2011, 2013-2019 Free Software Foundation, Inc.    *
  *   Copyright (C) 2014-2017 Benno Schulenberg                            *
  *                                                                        *
  *   GNU nano is free software: you can redistribute it and/or modify     *
@@ -153,7 +153,7 @@ typedef enum {
 } file_format;
 
 typedef enum {
-	HUSH, MILD, ALERT
+	HUSH, NOTICE, MILD, ALERT
 } message_type;
 
 typedef enum {
@@ -178,7 +178,7 @@ typedef enum {
 #ifdef ENABLE_COMMENT
 	COMMENT, UNCOMMENT, PREFLIGHT,
 #endif
-	CUT, CUT_TO_EOF, PASTE, INSERT, COUPLE_BEGIN, COUPLE_END, OTHER
+	ZAP, CUT, CUT_TO_EOF, PASTE, INSERT, COUPLE_BEGIN, COUPLE_END, OTHER
 } undo_type;
 
 /* Structure types. */
@@ -270,32 +270,32 @@ typedef struct lintstruct {
 #endif /* ENABLE_COLOR */
 
 /* More structure types. */
-typedef struct filestruct {
+typedef struct linestruct {
 	char *data;
 		/* The text of this line. */
 	ssize_t lineno;
 		/* The number of this line. */
-	struct filestruct *next;
+	struct linestruct *next;
 		/* Next node. */
-	struct filestruct *prev;
+	struct linestruct *prev;
 		/* Previous node. */
 #ifdef ENABLE_COLOR
 	short *multidata;
 		/* Array of which multi-line regexes apply to this line. */
 #endif
-} filestruct;
+} linestruct;
 
 typedef struct partition {
-	filestruct *fileage;
+	linestruct *filetop;
 		/* The top line of this portion of the file. */
-	filestruct *top_prev;
+	linestruct *top_prev;
 		/* The line before the top line of this portion of the file. */
 	char *top_data;
 		/* The text before the beginning of the top line of this portion
 		 * of the file. */
-	filestruct *filebot;
+	linestruct *filebot;
 		/* The bottom line of this portion of the file. */
-	filestruct *bot_next;
+	linestruct *bot_next;
 		/* The line after the bottom line of this portion of the
 		 * file. */
 	char *bot_data;
@@ -332,9 +332,9 @@ typedef struct undo {
 		/* Undo info specific to groups of lines. */
 
 	/* Cut-specific stuff we need. */
-	filestruct *cutbuffer;
+	linestruct *cutbuffer;
 		/* Copy of the cutbuffer. */
-	filestruct *cutbottom;
+	linestruct *cutbottom;
 		/* Copy of cutbottom. */
 	ssize_t mark_begin_lineno;
 		/* Mostly the line number of the current line; sometimes something else. */
@@ -360,13 +360,13 @@ typedef struct poshiststruct {
 typedef struct openfilestruct {
 	char *filename;
 		/* The file's name. */
-	filestruct *fileage;
+	linestruct *filetop;
 		/* The file's first line. */
-	filestruct *filebot;
+	linestruct *filebot;
 		/* The file's last line. */
-	filestruct *edittop;
+	linestruct *edittop;
 		/* The current top of the edit window for this file. */
-	filestruct *current;
+	linestruct *current;
 		/* The current line for this file. */
 	size_t totsize;
 		/* The file's total number of characters. */
@@ -384,7 +384,7 @@ typedef struct openfilestruct {
 	struct stat *current_stat;
 		/* The file's current stat information. */
 #ifndef NANO_TINY
-	filestruct *mark;
+	linestruct *mark;
 		/* The line in the file where the mark is set; NULL if not set. */
 	size_t mark_x;
 		/* The mark's x position in the above line. */
@@ -486,6 +486,7 @@ enum
 {
 	TITLE_BAR = 0,
 	LINE_NUMBER,
+	GUIDE_STRIPE,
 	SELECTED_TEXT,
 	STATUS_BAR,
 	ERROR_MESSAGE,
@@ -513,7 +514,7 @@ enum
 	MULTIBUFFER,
 	SMOOTH_SCROLL,
 	REBIND_DELETE,
-	REBIND_KEYPAD,
+	RAW_SEQUENCES,
 	NO_CONVERT,
 	BACKUP_FILE,
 	INSECURE_BACKUP,
@@ -529,9 +530,8 @@ enum
 	WORD_BOUNDS,
 	NO_NEWLINES,
 	BOLD_TEXT,
-	QUIET,
 	SOFTWRAP,
-	POS_HISTORY,
+	POSITIONLOG,
 	LOCKING,
 	NOREAD_MODE,
 	MAKE_IT_UNIX,
@@ -540,7 +540,12 @@ enum
 	LINE_NUMBERS,
 	NO_PAUSES,
 	AT_BLANKS,
-	AFTER_ENDS
+	AFTER_ENDS,
+	LET_THEM_ZAP,
+	BREAK_LONG_LINES,
+	FINAL_NEWLINE,
+	JUMPY_SCROLLING,
+	EMPTY_LINE
 };
 
 /* Flags for the menus in which a given function should be present. */
@@ -560,16 +565,17 @@ enum
 #define MYESNO          (1<<13)
 #define MLINTER         (1<<14)
 #define MFINDINHELP     (1<<15)
-/* This is an abbreviation for all menus except Help and YesNo. */
+/* This is an abbreviation for all menus except Help and Browser and YesNo. */
 #define MMOST  (MMAIN|MWHEREIS|MREPLACE|MREPLACEWITH|MGOTOLINE|MWRITEFILE|MINSERTFILE|\
-                MEXTCMD|MBROWSER|MWHEREISFILE|MGOTODIR|MFINDINHELP|MSPELL|MLINTER)
+                MEXTCMD|MWHEREISFILE|MGOTODIR|MFINDINHELP|MSPELL|MLINTER)
 #ifndef NANO_TINY
-#define MSOME  MMOST
+#define MSOME  MMOST|MBROWSER
 #else
 #define MSOME  MMAIN|MBROWSER
 #endif
 
 /* Basic control codes. */
+#define BS_CODE   0x08
 #define TAB_CODE  0x09
 #define ESC_CODE  0x1B
 #define DEL_CODE  0x7F
@@ -581,26 +587,32 @@ enum
 #define CONTROL_DOWN 0x404
 #define CONTROL_HOME 0x405
 #define CONTROL_END 0x406
-#define CONTROL_DELETE 0x407
+#define CONTROL_DELETE 0x40D
 #define SHIFT_CONTROL_LEFT 0x411
 #define SHIFT_CONTROL_RIGHT 0x412
 #define SHIFT_CONTROL_UP 0x413
 #define SHIFT_CONTROL_DOWN 0x414
 #define SHIFT_CONTROL_HOME 0x415
 #define SHIFT_CONTROL_END 0x416
-#define CONTROL_SHIFT_DELETE 0x417
+#define CONTROL_SHIFT_DELETE 0x41D
 #define ALT_LEFT 0x421
 #define ALT_RIGHT 0x422
 #define ALT_UP 0x423
 #define ALT_DOWN 0x424
+#define ALT_DELETE 0x42D
 #define SHIFT_ALT_LEFT 0x431
 #define SHIFT_ALT_RIGHT 0x432
 #define SHIFT_ALT_UP 0x433
 #define SHIFT_ALT_DOWN 0x434
+//#define SHIFT_LEFT 0x451
+//#define SHIFT_RIGHT 0x452
+#define SHIFT_UP 0x453
+#define SHIFT_DOWN 0x454
 #define SHIFT_HOME 0x455
 #define SHIFT_END 0x456
 #define SHIFT_PAGEUP 0x457
 #define SHIFT_PAGEDOWN 0x458
+#define SHIFT_DELETE 0x45D
 #define SHIFT_TAB 0x45F
 
 #ifdef USE_SLANG

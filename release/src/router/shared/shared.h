@@ -1819,10 +1819,7 @@ extern int isValidMacAddress(const char* mac);
 extern int isValidEnableOption(const char* option, int range);
 
 /* scripts.c */
-#define xstart(args...) _xstart(args, NULL)
-extern int _xstart(const char *cmd, ...);
-extern void run_custom_script(char *name, char *args);
-extern void run_custom_script_blocking(char *name, char *arg1, char*arg2);
+extern void run_custom_script(char *name, int timeout, char *arg1, char *arg2);
 extern void run_postconf(char *name, char *config);
 extern void use_custom_config(char *config, char *target);
 extern void append_custom_config(char *config, FILE *fp);
@@ -2225,18 +2222,13 @@ extern int FindBrifByWlif(char *wl_ifname, char *brif_name, int size);
 #define HTTPD_CERT	"/etc/cert.pem"
 #define HTTPD_KEY	"/etc/key.pem"
 #define LIGHTTPD_CERTKEY	"/etc/server.pem"
-#define UPLOAD_CERT_FOLDER	"/jffs/ssl"
-#define UPLOAD_CERT	"/jffs/ssl/cert.pem"
-#define UPLOAD_KEY	"/jffs/ssl/key.pem"
+#define UPLOAD_CERT_FOLDER	"/jffs/.cert"
+#define UPLOAD_CERT	"/jffs/.cert/cert.pem"
+#define UPLOAD_KEY	"/jffs/.cert/key.pem"
 #ifdef RTCONFIG_LETSENCRYPT
 #define ACME_CERTHOME	"/jffs/.le"
 #endif
 #endif
-
-#ifdef RTCONFIG_SSH
-#define SSHD_CERT_FOLDER	"/jffs/ssl"
-#endif
-
 
 #ifdef RTAC68U
 extern int is_ac66u_v2_series();

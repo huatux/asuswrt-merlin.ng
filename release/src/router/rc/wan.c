@@ -412,13 +412,6 @@ start_igmpproxy(char *wan_ifname)
 #endif
 #endif
 
-#ifdef RTCONFIG_MULTICAST_IPTV
-	if (nvram_get_int("switch_stb_x") > 6 &&
-	    nvram_match("switch_wantag", "movistar") &&
-	    !nvram_match("iptv_ifname", wan_ifname))
-		return;
-#endif
-
 	stop_igmpproxy();
 
 	if (nvram_get_int("udpxy_enable_x")) {
@@ -430,6 +423,13 @@ start_igmpproxy(char *wan_ifname)
 			"-c", nvram_safe_get("udpxy_clients"),
 			"-a", nvram_get("lan_ifname") ? : "br0");
 	}
+
+#ifdef RTCONFIG_MULTICAST_IPTV
+	if (nvram_get_int("switch_stb_x") > 6 &&
+	    nvram_match("switch_wantag", "movistar") &&
+	    !nvram_match("iptv_ifname", wan_ifname))
+		return;
+#endif
 
 #if !defined(HND_ROUTER)
 	if (!nvram_get_int("mr_enable_x"))
@@ -671,7 +671,7 @@ void update_wan_state(char *prefix, int state, int reason)
 	}
         else if (state == WAN_STATE_CONNECTED) {
 		sprintf(tmp,"%c",prefix[3]);
-                run_custom_script("wan-start", tmp);
+		run_custom_script("wan-start", 0, tmp, NULL);
         }
 
 #if defined(RTCONFIG_WANRED_LED)
@@ -1197,7 +1197,7 @@ _dprintf("start_wan_if: USB modem is scanning...\n");
 			nvram_set(strcat_r(prefix, "dnsenable_x", tmp), "1");
 #endif
 
-			char *pppd_argv[] = { "/usr/sbin/pppd", "call", "3g", "nochecktime", NULL};
+			char *pppd_argv[] = { "/usr/sbin/pppd", "call", "3g", NULL};
 
 			if(nvram_get_int("stop_conn_3g") != 1)
 				_eval(pppd_argv, NULL, 0, NULL);
@@ -1861,7 +1861,9 @@ stop_wan_if(int unit)
 	// Handel for each interface
 	if(unit == wan_primary_ifunit()){
 		killall_tk("stats");
+#ifndef RTCONFIG_NTPD
 		killall_tk("ntpclient");
+#endif
 
 		/* Shutdown and kill all possible tasks */
 #if 0
@@ -2041,8 +2043,11 @@ int update_resolvconf(void)
 #ifdef RTCONFIG_YANDEXDNS
 	int yadns_mode = nvram_get_int("yadns_enable_x") ? nvram_get_int("yadns_mode") : YADNS_DISABLED;
 #endif
+#ifdef RTCONFIG_DNSPRIVACY
+	int dnspriv_enable = nvram_get_int("dnspriv_enable");
+#endif
 #ifdef RTCONFIG_OPENVPN
-        int dnsstrict = 0;
+        int dnsmode;
 #endif
 #ifdef RTCONFIG_DUALWAN
 	int primary_unit = wan_primary_ifunit();
@@ -2060,11 +2065,10 @@ int update_resolvconf(void)
 		goto error;
 	}
 
-/* Add DNS from VPN clients, others if non-exclusive */
+/* Add DNS if no VPN client is globally set to exclusive */
 #ifdef RTCONFIG_OPENVPN
-	dnsstrict = write_ovpn_resolv(fp, fp_servers);
-	// If dns not set to exclusive
-	if (dnsstrict != 3)
+	dnsmode = get_max_dnsmode();
+	if (dnsmode != OVPN_DNSMODE_EXCLUSIVE)
 #endif
 	{
 		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
@@ -2092,6 +2096,10 @@ int update_resolvconf(void)
 			do {
 #ifdef RTCONFIG_YANDEXDNS
 				if (yadns_mode != YADNS_DISABLED)
+					break;
+#endif
+#ifdef RTCONFIG_DNSPRIVACY
+				if (dnspriv_enable)
 					break;
 #endif
 #ifdef RTCONFIG_DUALWAN
@@ -2129,6 +2137,11 @@ int update_resolvconf(void)
 		}
 	}
 
+/* Add DNS from VPN clients - add at the end since config is read backward by dnsmasq */
+#ifdef RTCONFIG_OPENVPN
+	write_ovpn_dns(fp_servers);
+#endif
+
 #ifdef RTCONFIG_YANDEXDNS
 	if (yadns_mode != YADNS_DISABLED) {
 		char *server[2];
@@ -2137,8 +2150,16 @@ int update_resolvconf(void)
 			fprintf(fp_servers, "server=%s\n", server[unit]);
 			fprintf(fp_servers, "server=%s#%u\n", server[unit], YADNS_DNSPORT);
 		}
-	}
+	} else
 #endif
+#ifdef RTCONFIG_DNSPRIVACY
+	if (dnspriv_enable) {
+		if (!nvram_get_int("dns_local"))
+			fprintf(fp, "nameserver %s\n", "127.0.1.1");
+		fprintf(fp_servers, "server=%s\n", "127.0.1.1");
+	} else
+#endif
+	;
 
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && is_routing_enabled()) {
@@ -2179,6 +2200,10 @@ int update_resolvconf(void)
 				continue;
 			}
 #endif
+#ifdef RTCONFIG_DNSPRIVACY
+			if (dnspriv_enable)
+				continue;
+#endif
 			fprintf(fp_servers, "server=%s\n", tmp);
 		}
 
@@ -2200,7 +2225,7 @@ int update_resolvconf(void)
 	file_unlock(lock);
 
 #ifdef RTCONFIG_OPENVPN
-	if (dnsstrict == 2)
+	if (dnsmode == OVPN_DNSMODE_STRICT)
 		start_dnsmasq();	// add strict-order
 	else
 #endif

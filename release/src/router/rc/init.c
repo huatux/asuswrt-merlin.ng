@@ -8471,6 +8471,15 @@ int init_nvram(void)
 #ifdef RTCONFIG_DNSFILTER
 	add_rc_support("dnsfilter");
 #endif
+
+#ifdef RTCONFIG_NTPD
+	add_rc_support("ntpd");
+#endif
+
+#ifdef RTCONFIG_DNSPRIVACY
+	add_rc_support("dnspriv");
+#endif
+
 #ifdef RTCONFIG_DUALWAN // RTCONFIG_DUALWAN
 	add_rc_support("dualwan");
 
@@ -9081,9 +9090,10 @@ int init_nvram2(void)
 	nvram_set("vpn_upload_state", "");
 #endif
 
-/* Remove potentially obsolete data, especially if coming from 380.xx */
+/* Remove potentially outdated data */
 	nvram_unset("webs_state_info");
 	nvram_unset("webs_state_info_beta");
+	nvram_set("webs_state_flag","0");
 
 	if (restore_defaults_g)
 	{
@@ -10464,7 +10474,7 @@ int init_main(int argc, char *argv[])
 		asm1042_upgrade(1);	// check whether upgrade firmware of ASM1042
 #endif
 
-		run_custom_script("init-start", NULL);
+		run_custom_script("init-start", 0, NULL, NULL);
 		setup_passwd();		// Re-apply now that jffs is up, in case of custom configs
 		use_custom_config("fstab", "/etc/fstab");
 		run_postconf("fstab", "/etc/fstab");
@@ -10516,7 +10526,6 @@ int init_main(int argc, char *argv[])
 
 			stop_lan();
 			stop_vlan();
-			stop_logger();
 
 #if defined(RTCONFIG_ALPINE) || defined(RTCONFIG_LANTIQ)
 			_dprintf("sync during rebooting...\n");
@@ -10540,6 +10549,7 @@ int init_main(int argc, char *argv[])
 #endif
 				}
 #endif
+				stop_logger();
 #if defined(RTCONFIG_QCA) && defined(RTCONFIG_QCA8033)
 				stop_lan_port();
 				start_lan_port(5);
@@ -10555,6 +10565,7 @@ int init_main(int argc, char *argv[])
 			// SIGHUP (RESTART) falls through
 
 		case SIGUSR2:		/* START */
+			stop_logger();
 			start_logger();
 #if defined(RTCONFIG_QCA)
 			logmessage("INIT", "firmware version: %s_%s_%s\n", nvram_safe_get("firmver"), nvram_safe_get("buildno"), nvram_safe_get("extendno"));

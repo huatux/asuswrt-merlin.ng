@@ -58,12 +58,13 @@ function initial(){
 	if (wl_info.band5g_2_support) {
 		document.getElementById("wifi51_clients_th").innerHTML = "Wireless Clients (5 GHz-1)";
 		document.getElementById("wifi5_2_clients_tr").style.display = "";
-        } else if (based_modelid == "RT-AC87U") {
-                document.getElementById("wifi5_clients_tr_qtn").style.display = "";
-                document.getElementById("qtn_version").style.display = "";
-        } else if (band5g_support) {
-                document.getElementById("wifi5_clients_tr").style.display = "";
-        }
+	}
+	if (based_modelid == "RT-AC87U") {
+		document.getElementById("wifi5_clients_tr_qtn").style.display = "";
+		document.getElementById("qtn_version").style.display = "";
+	} else if (band5g_support) {
+		document.getElementById("wifi5_clients_tr").style.display = "";
+	}
 
 	showbootTime();
 
@@ -119,7 +120,7 @@ function hwaccel_state(){
 	var qos_type = '<% nvram_get("qos_type"); %>';
 
 	if (hnd_support) {
-		code = "<span>Runner:</span> ";
+		code = "Runner:<span> ";
 
 		if ('<% nvram_get("runner_disable"); %>' == '1') {
 			code += "Disabled";
@@ -133,7 +134,7 @@ function hwaccel_state(){
 			code += "Enabled";
 		}
 
-		code += "&nbsp;&nbsp;-&nbsp;&nbsp;<span>Flow Cache:</span> ";
+		code += "</span>&nbsp;&nbsp;-&nbsp;&nbsp;Flow Cache:<span> ";
 		if ('<% nvram_get("fc_disable"); %>' == '1') {
 			code += "Disabled";
 			if ('<% nvram_get("fc_disable_force"); %>' == '1') {
@@ -145,6 +146,7 @@ function hwaccel_state(){
 		} else {
 			code += "Enabled";
 		}
+		code += "</span>";
 	} else {
 		if (ctf_dis == "1") {
 			code = "Disabled";
@@ -161,7 +163,7 @@ function hwaccel_state(){
 				if (code.slice(-2) == "  ") code += "&lt;unknown&gt;, ";
 
 				// Trim two trailing chars, either "  " or ", "
-				code = code.slice(0,-2) + "</span></>";
+				code = code.slice(0,-2) + "</span>";
 			}
 		} else if (ctf_dis == "0") {
 			code = "<span>Enabled";
@@ -396,8 +398,10 @@ function show_memcpu(){
 	document.getElementById("mem_free_td").innerHTML = mem_stats_arr[1] + " MB";
 	document.getElementById("mem_buffer_td").innerHTML = mem_stats_arr[2] + " MB";
 	document.getElementById("mem_cache_td").innerHTML = mem_stats_arr[3] + " MB";
-	document.getElementById("mem_swap_td").innerHTML = mem_stats_arr[4] + " / " + mem_stats_arr[5] + " MB";
-
+	if (parseInt(mem_stats_arr[5]) == 0)
+		document.getElementById("mem_swap_td").innerHTML = "<span>No swap configured</span>";
+	else
+		document.getElementById("mem_swap_td").innerHTML = mem_stats_arr[4] + " / " + mem_stats_arr[5] + " MB";
 	document.getElementById("nvram_td").innerHTML = mem_stats_arr[6] + " / " + <% sysinfo("nvram.total"); %> + " bytes";
 	document.getElementById("jffs_td").innerHTML = mem_stats_arr[7];
 }
@@ -617,7 +621,7 @@ function update_sysinfo(e){
 						</td>
 					</tr>
 					<tr>
-						<th>Wireless clients (2.4 GHz)</th>
+						<th>Wireless Clients (2.4 GHz)</th>
 						<td id="wlc_24_td"></td>
 					</tr>
 					<tr id="wifi5_clients_tr" style="display:none;">
@@ -625,11 +629,11 @@ function update_sysinfo(e){
 						<td id="wlc_51_td"></td>
 					</tr>
 					<tr id="wifi5_2_clients_tr" style="display:none;">
-						<th>Wireless clients (5 GHz-2)</th>
+						<th>Wireless Clients (5 GHz-2)</th>
 						<td id="wlc_52_td"></td>
 					</tr>
 					<tr id="wifi5_clients_tr_qtn" style="display:none;">
-						<th>Wireless clients (5 GHz)</th>
+						<th>Wireless Clients (5 GHz)</th>
 						<td id="wlc_5qtn_td"></td>
 					</tr>
 				</table>

@@ -25,17 +25,21 @@
 
 int ssl_init(void)
 {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_library_init();
 	SSL_load_error_strings();
 	OpenSSL_add_all_algorithms();
-
+#endif
+	
 	return 0;
 }
 
 void ssl_exit(void)
 {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	ERR_free_strings();
 	EVP_cleanup();
+#endif
 }
 
 static int verify_callback(int preverify_ok, X509_STORE_CTX *ctx)
@@ -94,15 +98,11 @@ static int ssl_set_ca_location(http_t *client)
 		goto done;
 	}
 
-#ifdef ASUSWRT
-	ret = SSL_CTX_load_verify_locations(client->ssl_ctx, "/etc/ssl/certs/ca-certificates.crt", NULL);
-#else
 	ret = SSL_CTX_set_default_verify_paths(client->ssl_ctx);
 	if (ret < 1)
 		ret = SSL_CTX_load_verify_locations(client->ssl_ctx, CAFILE1, NULL);
 	if (ret < 1)
 		ret = SSL_CTX_load_verify_locations(client->ssl_ctx, CAFILE2, NULL);
-#endif
 done:
 	if (ret < 1)
 		return 1;

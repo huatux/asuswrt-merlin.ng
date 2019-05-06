@@ -1150,6 +1150,8 @@ void start_dnsmasq(void)
 	int unit;
 	char tmpStr[20];
 #endif
+	char buf[sizeof("/rom/etc/resolv.conf")], *path;
+	int n;
 
 	TRACE_PT("begin\n");
 
@@ -1281,12 +1283,13 @@ void start_dnsmasq(void)
 	}
 #endif
 	if (!is_routing_enabled()
-		&& !repeater_mode()
+		&& (repeater_mode()
 #if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
-		&& !psr_mode() && !mediabridge_mode()
+		|| psr_mode() || mediabridge_mode()
 #elif defined(RTCONFIG_REALTEK)
-		&& !mediabridge_mode()
+		|| mediabridge_mode()
 #endif
+		)
 #ifdef RTCONFIG_DPSTA
 		&& !(dpsta_mode() && nvram_get_int("re_mode") == 0)
 #endif
@@ -1388,7 +1391,7 @@ void start_dnsmasq(void)
 		fprintf(fp, "domain=%s\n"
 			    "expand-hosts\n", value);	// expand hostnames in hosts file
 	}
-	if (nvram_get_int("lan_dns_fwd_local") != 1) {
+	if (nvram_get_int("dns_fwd_local") != 1) {
 		fprintf(fp, "bogus-priv\n"			// don't forward private reverse lookups upstream
 		            "domain-needed\n");			// don't forward plain name queries upstream
 		if (*value)
@@ -1711,7 +1714,12 @@ void start_dnsmasq(void)
 	}
 
 #ifdef RTCONFIG_DNSSEC
-	if (nvram_match("dnssec_enable", "1")) {
+#ifdef RTCONFIG_DNSPRIVACY
+	if (nvram_get_int("dnspriv_enable") && nvram_get_int("dnssec_enable") == 2) {
+		fprintf(fp, "proxy-dnssec\n");
+	} else
+#endif
+	if (nvram_get_int("dnssec_enable")) {
 		fprintf(fp, "trust-anchor=.,19036,8,2,49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5\n"
 		            "trust-anchor=.,20326,8,2,E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D\n"
 		            "dnssec\n");
@@ -1722,11 +1730,13 @@ void start_dnsmasq(void)
 
 		if (nvram_match("dnssec_check_unsigned_x", "0"))
 			fprintf(fp, "dnssec-check-unsigned=no\n");
-
 	}
 #endif
 	if (nvram_match("dns_norebind", "1"))
 		fprintf(fp, "stop-dns-rebind\n");
+
+	if (nvram_match("ntpd_enable", "1"))
+		fprintf(fp, "dhcp-option=option:ntp-server,%s\n", lan_ipaddr);
 
 	/* Protect against VU#598349 */
 	fprintf(fp,"dhcp-name-match=set:wpad-ignore,wpad\n"
@@ -1744,21 +1754,39 @@ void start_dnsmasq(void)
 	/* Create resolv.dnsmasq with empty server list */
 	f_write(dmservers, NULL, 0, FW_APPEND, 0644);
 
+#ifdef RTCONFIG_DNSPRIVACY
+	start_stubby();
+#endif
 #if (defined(RTCONFIG_TR069) && !defined(RTCONFIG_TR181))
 	eval("dnsmasq", "--log-async", "-6", "/sbin/dhcpc_lease");
 #else
 	eval("dnsmasq", "--log-async");
 #endif
 
-	for ( i = 1; i < 4; i++ ) {
-                if (!pids("dnsmasq")) {
-			sleep(i);
-		} else {
-			// Make the router use dnsmasq for its own local resolution if it did start
-			unlink("/etc/resolv.conf");
-			symlink("/rom/etc/resolv.conf", "/etc/resolv.conf");	// nameserver 127.0.0.1
-			i = 4;
+	/* Update local resolving mode */
+	n = readlink("/etc/resolv.conf", buf, sizeof(buf));
+	if (nvram_get_int("dns_local")) {
+		/* Use dnsmasq for local resolving if it did start,
+		 * fallback to wan dns otherwise */
+		path = (char *)dmresolv;
+		for (i = 4; i > 0; i--) {
+			if (pids("dnsmasq")) {
+				/* nameserver 127.0.0.1 */
+				path = "/rom/etc/resolv.conf"; 
+			} else if (i)
+				sleep(1);
 		}
+	} else
+	if (n == sizeof("/rom/etc/resolv.conf") - 1 &&
+	    strncmp(buf, "/rom/etc/resolv.conf", n) == 0) {
+		/* Use WAN DNS for local resolving only if
+		 * nameservers were not changed externally */
+		path = (char *)dmresolv;
+	} else
+		path = NULL;
+	if (path && !(n == strlen(path) && strncmp(buf, path, n) == 0)) {
+		unlink("/etc/resolv.conf");
+		symlink(path, "/etc/resolv.conf");
 	}
 
 	TRACE_PT("end\n");
@@ -1778,6 +1806,9 @@ void stop_dnsmasq(void)
         symlink(dmresolv, "/etc/resolv.conf");
 
 	killall_tk("dnsmasq");
+#ifdef RTCONFIG_DNSPRIVACY
+	stop_stubby();
+#endif
 
 	TRACE_PT("end\n");
 }
@@ -1787,6 +1818,173 @@ void reload_dnsmasq(void)
 	/* notify dnsmasq */
 	kill_pidfile_s("/var/run/dnsmasq.pid", SIGHUP);
 }
+
+#ifdef RTCONFIG_DNSPRIVACY
+void start_stubby(void)
+{
+	const static char *stubby_config = "/etc/stubby/stubby.yml";
+	const static char *stubby_log = NULL;
+	char *stubby_argv[] = { "/usr/sbin/stubby",
+		"-g",
+		"-C", (char *)stubby_config,
+		NULL,				/* -l */
+		NULL
+	};
+	int index = 4;
+	FILE *fp;
+	char *nv, *nvp, *b;
+	char *server, *tlsport, *hostname, *spkipin, *digest;
+	int tls_required, tls_possible, max_queries, port;
+	union {
+		struct in_addr addr4;
+#ifdef RTCONFIG_IPV6
+		struct in6_addr addr6;
+#endif
+	} addr;
+
+	TRACE_PT("begin\n");
+
+	/* Check if enabled */
+	if (!nvram_get_int("dnspriv_enable") || !is_routing_enabled())
+		return;
+
+	if (getpid() != 1) {
+		notify_rc("start_stubby");
+		return;
+	}
+
+	stop_stubby();
+
+	mkdir_if_none("/etc/stubby");
+
+	if ((fp = fopen(stubby_config, "w")) == NULL)
+		return;
+
+	tls_required = nvram_get_int("dnspriv_profile");
+	tls_possible = nvram_get_int("ntp_ready");
+
+	/* Basic & privacy settings */
+	fprintf(fp,
+		"resolution_type: GETDNS_RESOLUTION_STUB\n"
+		"dns_transport_list:\n"
+		"%s%s"
+		"tls_authentication: %s\n"
+		"tls_query_padding_blocksize: 128\n"
+		"appdata_dir: \"/var/lib/misc\"\n"
+		"resolvconf: \"%s\"\n"
+		"edns_client_subnet_private: 1\n",
+		tls_possible ?
+			"  - GETDNS_TRANSPORT_TLS\n" : "",
+		tls_required && tls_possible ? "" :
+			"  - GETDNS_TRANSPORT_UDP\n"
+			"  - GETDNS_TRANSPORT_TCP\n",
+		tls_required && tls_possible ?
+			"GETDNS_AUTHENTICATION_REQUIRED" : "GETDNS_AUTHENTICATION_NONE",
+		dmresolv);
+
+#ifdef RTCONFIG_DNSSEC
+	/* DNSSEC settings */
+	if (nvram_get_int("dnssec_enable") == 2 && tls_possible) {
+		fprintf(fp,
+			"dnssec_return_status: GETDNS_EXTENSION_TRUE\n");
+	}
+#endif
+
+	/* Connection settings */
+	fprintf(fp,
+		"round_robin_upstreams: 1\n"
+		"idle_timeout: 9000\n"
+		"tls_connection_retries: 2\n"
+		"tls_backoff_time: 900\n"
+		"timeout: 3000\n");
+
+	/* Limit number of outstanding requests */
+	max_queries = nvram_get_int("max_dns_queries");
+#if defined(RTCONFIG_SOC_IPQ8064)
+	if (max_queries == 0)
+		max_queries = 1500;
+#endif
+	if (max_queries)
+		fprintf(fp, "limit_outstanding_queries: %d\n", max(150, min(max_queries, 10000)));
+
+	/* Listen address */
+	fprintf(fp,
+		"listen_addresses:\n"
+		"  - 127.0.1.1@53\n");
+
+	/* Upstreams */
+	fprintf(fp,
+		"upstream_recursive_servers:\n");
+	nv = nvp = strdup(nvram_safe_get("dnspriv_rulelist"));
+	while (nvp && (b = strsep(&nvp, "<")) != NULL) {
+		server = tlsport = hostname = spkipin = NULL;
+
+		/* <server>port>hostname>[digest:]spkipin */
+		if ((vstrsep(b, ">", &server, &tlsport, &hostname, &spkipin)) < 4)
+			continue;
+
+		/* Check server, can be IPv4/IPv6 address */
+		if (*server == '\0')
+			continue;
+		else if (inet_pton(AF_INET, server, &addr) <= 0
+#ifdef RTCONFIG_IPV6
+			&& (inet_pton(AF_INET6, server, &addr) <= 0 || !ipv6_enabled())
+#endif
+		)	continue;
+
+		/* Check port, if specified */
+		port = *tlsport ? atoi(tlsport) : 0;
+		if (port < 0 || port > 65535)
+			continue;
+
+		fprintf(fp, "  - address_data: %s\n", server);
+		if (port)
+			fprintf(fp, "    tls_port: %d\n", port);
+		if (*hostname)
+			fprintf(fp, "    tls_auth_name: \"%s\"\n", hostname);
+		if (*spkipin) {
+			digest = strchr(spkipin, ':') ? strsep(&spkipin, ":") : "sha256";
+			fprintf(fp, "    tls_pubkey_pinset:\n"
+				    "      - digest: \"%s\"\n"
+				    "        value: %s\n", digest, spkipin);
+		}
+	}
+	if (nv)
+		free(nv);
+
+	append_custom_config("stubby.yml", fp);
+	fclose(fp);
+//	use_custom_config("stubby.yml", (char *)stubby_config);
+	run_postconf("stubby", (char *)stubby_config);
+	chmod(stubby_config, 0644);
+
+	if (nvram_get_int("stubby_debug")) {
+		stubby_argv[index++] = "-l";
+		stubby_log = ">/tmp/stubby.log";
+	}
+
+	_eval(stubby_argv, stubby_log, 0, NULL);
+
+	TRACE_PT("end\n");
+}
+
+void stop_stubby(void)
+{
+	TRACE_PT("begin\n");
+
+	if (getpid() != 1) {
+		notify_rc("stop_stubby");
+		return;
+	}
+
+	if (pids("stubby")) {
+		kill_pidfile_tk("/var/run/stubby.pid");
+		unlink("/var/run/stubby.pid");
+	}
+
+	TRACE_PT("end\n");
+}
+#endif
 
 #ifdef RTCONFIG_IPV6
 void add_ip6_lanaddr(void)
@@ -3333,11 +3531,11 @@ start_ddns(void)
 		}
 	} else {	// Custom DDNS
 		// Block until it completes and updates the DDNS update results in nvram
-		run_custom_script_blocking("ddns-start", wan_ip, NULL);
+		run_custom_script("ddns-start", 120, wan_ip, NULL);
 		return 0;
 	}
 
-	run_custom_script("ddns-start", wan_ip);
+	run_custom_script("ddns-start", 0, wan_ip, NULL);
 	return 0;
 }
 
@@ -4090,10 +4288,14 @@ stop_misc(void)
 	if (pids("qtn_monitor"))
 		killall_tk("qtn_monitor");
 #endif
+#ifdef RTCONFIG_NTPD
+	stop_ntpd();
+#else
 	if (pids("ntp"))
 		killall_tk("ntp");
 	if (pids("ntpclient"))
 		killall_tk("ntpclient");
+#endif
 
 	stop_hotplug2();
 #ifdef RTCONFIG_BCMWL6
@@ -4638,12 +4840,15 @@ void start_upnp(void)
 						httpx_port = nvram_get_int("misc_httpsport_x") ? : 8443;
 						fprintf(f, "deny %d 0.0.0.0/0 0-65535\n", httpx_port);
 					}
-					if (enable != 1)
 #endif
+#if 0
+					if (enable != 1)
+
 					{
 						httpx_port = nvram_get_int("misc_httpport_x") ? : 8080;
 						fprintf(f, "deny %d 0.0.0.0/0 0-65535\n", httpx_port);
 					}
+#endif
 				}
 
 #ifdef RTCONFIG_WEBDAV
@@ -4771,15 +4976,21 @@ void reload_upnp(void)
 int
 start_ntpc(void)
 {
+#ifndef RTCONFIG_NTPD
 	char *ntp_argv[] = {"ntp", NULL};
 	int pid;
+#endif
 	int unit = wan_primary_ifunit();
 
 	if(dualwan_unit__usbif(unit) && nvram_get_int("modem_pdp") == 2)
 		return 0;
 
+#ifdef RTCONFIG_NTPD
+	start_ntpd();
+#else
 	if (!pids("ntp"))
 		_eval(ntp_argv, NULL, 0, &pid);
+#endif
 
 	return 0;
 }
@@ -4787,21 +4998,30 @@ start_ntpc(void)
 void
 stop_ntpc(void)
 {
+#ifdef RTCONFIG_NTPD
+	stop_ntpd();
+#else
 	if (pids("ntpclient"))
 		killall_tk("ntpclient");
+#endif
 }
-
 
 void refresh_ntpc(void)
 {
 	setup_timezone();
 
+#ifdef RTCONFIG_NTPD
+	/* TODO: refresh ntpd with signal */
+	stop_ntpd();
+	start_ntpd();
+#else
 	stop_ntpc();
 
 	if (!pids("ntp"))
 		start_ntpc();
 	else
 		kill_pidfile_s("/var/run/ntp.pid", SIGALRM);
+#endif
 }
 
 #ifdef RTCONFIG_BCMARM
@@ -4913,7 +5133,7 @@ void stop_lltd(void)
 int generate_mdns_config(void)
 {
 	FILE *fp;
-	char avahi_config[80], *user;
+	char avahi_config[80];
 	char et0macaddr[18];
 	int ret = 0;
 	char *wan1_ifname;
@@ -4930,11 +5150,6 @@ int generate_mdns_config(void)
 
 	/* Set [server] configuration */
 	fprintf(fp, "[Server]\n");
-
-	user = nvram_safe_get("http_username");
-	if (*user == '\0')
-		user = "admin";
-	fprintf(fp, "user=%s\n", user);
 
 	fprintf(fp, "host-name=%s-%c%c%c%c\n", get_productid(),et0macaddr[12],et0macaddr[13],et0macaddr[15],et0macaddr[16]);
 #ifdef RTCONFIG_FINDASUS
@@ -7494,7 +7709,7 @@ void start_chilli(void)
                     if ((vstrsep(b, ">", &htmlIdx, &brdName, &sessionTime, &UIType, &UIPath, &ifName, &enService, &enPass, &bandwidthMaxDown, &bandwidthMaxUp) < 9 ))
                         continue;
 			  brCount++;
-			  if(1 != is_intf_up(FREEWIFIIF)){
+			  if(1 != (is_intf_up(FREEWIFIIF))){
 		  	     eval("brctl", "addbr", FREEWIFIIF);
 		  	     eval("ifconfig", FREEWIFIIF, "up");
 			  }
@@ -7898,9 +8113,9 @@ start_services(void)
 #endif
 
 #if defined(RTCONFIG_IPSEC)
-        //if(nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable"))
-        rc_ipsec_nvram_convert_check();
-        rc_ipsec_config_init();
+	//if(nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable"))
+	rc_ipsec_nvram_convert_check();
+	rc_ipsec_config_init();
 #if defined(HND_ROUTER)
 	rc_set_ipsec_stack_block_size();
 #endif
@@ -8054,7 +8269,7 @@ start_services(void)
 #endif /* RTCONFIG_DBLOG */
 #endif /* RTCONFIG_PUSH_EMAIL */
 
-	run_custom_script("services-start", NULL);
+	run_custom_script("services-start", 0, NULL, NULL);
 
 	return 0;
 }
@@ -8062,6 +8277,10 @@ start_services(void)
 void
 stop_logger(void)
 {
+#if defined(RTCONFIG_JFFS2LOG) && (defined(RTCONFIG_JFFS2)||defined(RTCONFIG_BRCM_NAND_JFFS2))
+		eval("cp", "/tmp/syslog.log", "/tmp/syslog.log-1", "/jffs");
+#endif
+
 	if (pids("klogd"))
 		killall("klogd", SIGTERM);
 	if (pids("syslogd"))
@@ -8071,7 +8290,7 @@ stop_logger(void)
 void
 stop_services(void)
 {
-	run_custom_script("services-stop", NULL);
+	run_custom_script("services-stop", 0, NULL, NULL);
 
 #ifdef RTCONFIG_ADTBW
 	stop_adtbw();
@@ -8423,8 +8642,12 @@ stop_services_mfg(void)
 #if defined(RTCONFIG_BWDPI)
 	stop_bwdpi_check();
 #endif
+#ifdef RTCONFIG_NTPD
+	stop_ntpd();
+#else
 	killall_tk("ntp");
 	stop_ntpc();
+#endif
 	stop_udhcpc(-1);
 	platform_start_ate_mode();
 #ifdef RTCONFIG_QCA_PLC_UTILS
@@ -9328,7 +9551,7 @@ again:
 
 	TRACE_PT("running: %d %s\n", action, script);
 
-	run_custom_script_blocking("service-event", actionstr, script);
+	run_custom_script("service-event", 120, actionstr, script);
 
 #ifdef RTCONFIG_USB_MODEM
 	if(!strcmp(script, "simauth")
@@ -9876,7 +10099,7 @@ again:
 				if (!nvram_match("nflash_swecc", "1"))
 				{
 					_dprintf(" Write FW to the 2nd partition.\n");
-					if (nvram_contains_word("rc_support", "nandflash"))     /* RT-AC56S,U/RT-AC68U/RT-N16UHP */
+					if (nvram_contains_word("rc_support", "nandflash"))	/* RT-AC56S,U/RT-AC68U/RT-N16UHP */
 						eval("mtd-write2", upgrade_file, "linux2");
 					else
 						eval("mtd-write", "-i", upgrade_file, "-d", "linux2");
@@ -11936,6 +12159,13 @@ check_ddr_done:
 		if(action & RC_SERVICE_STOP) stop_dnsmasq();
 		if(action & RC_SERVICE_START) start_dnsmasq();
 	}
+#ifdef RTCONFIG_DNSPRIVACY
+	else if (strcmp(script, "stubby") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_stubby();
+		if(action & RC_SERVICE_START) start_stubby();
+	}
+#endif
 #ifdef RTCONFIG_DHCP_OVERRIDE
 	else if (strcmp(script, "dhcpd") == 0)
 	{
@@ -12159,6 +12389,13 @@ check_ddr_done:
 		if(action & RC_SERVICE_STOP) stop_ntpc();
 		if(action & RC_SERVICE_START) start_ntpc();
 	}
+#ifdef RTCONFIG_NTPD
+	else if (strcmp(script, "ntpd") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_ntpd();
+		if(action & RC_SERVICE_START) start_ntpd();
+	}
+#endif
 	else if (strcmp(script, "rebuild_cifs_config_and_password") ==0)
 	{
 		fprintf(stderr, "rc rebuilding CIFS config and password databases.\n");
@@ -12168,6 +12405,9 @@ check_ddr_done:
 	else if (strcmp(script, "time") == 0)
 	{
 		if(action & RC_SERVICE_STOP) {
+#ifdef RTCONFIG_NTPD
+			stop_ntpd();
+#endif
 			stop_hour_monitor_service();
 			stop_telnetd();
 #ifdef RTCONFIG_SSH
@@ -12185,7 +12425,7 @@ check_ddr_done:
 			start_sshd();
 #endif
 			//start_httpd();
-			start_firewall(wan_primary_ifunit(), 0);
+//			start_firewall(wan_primary_ifunit(), 0);
 			start_hour_monitor_service();
 		}
 	}
@@ -12441,11 +12681,11 @@ retry_wps_enr:
  	}
 	else if (strncmp(script, "clearvpnserver", 14) == 0)
 	{
-		reset_ovpn_setting(OVPN_TYPE_SERVER, nvram_get_int("vpn_server_unit"));
+		reset_ovpn_setting(OVPN_TYPE_SERVER, nvram_get_int("vpn_server_unit"), 1);
 	}
         else if (strncmp(script, "clearvpnclient", 14) == 0)
 	{
-                reset_ovpn_setting(OVPN_TYPE_CLIENT, nvram_get_int("vpn_client_unit"));
+                reset_ovpn_setting(OVPN_TYPE_CLIENT, nvram_get_int("vpn_client_unit"), 1);
 	}
 #endif
 #ifdef RTCONFIG_YANDEXDNS
@@ -13120,6 +13360,9 @@ _dprintf("test 2. turn off the USB power during %d seconds.\n", reset_seconds[re
 	}
 
 skip:
+
+	run_custom_script("service-event-end", 0, actionstr, script);
+
 	if(nvptr){
 _dprintf("goto again(%d)...\n", getpid());
 		goto again;
@@ -13711,7 +13954,7 @@ _dprintf("nat_rule: the nat rule file was not ready. wait %d seconds...\n", retr
 	setup_ct_timeout(TRUE);
 	setup_udp_timeout(TRUE);
 
-	run_custom_script("nat-start", NULL);
+	run_custom_script("nat-start", 0, NULL, NULL);
 
 	return NAT_STATE_NORMAL;
 }
@@ -13956,7 +14199,7 @@ firmware_check_main(int argc, char *argv[])
 #endif
 
 #ifdef CONFIG_BCMWL5
-#if defined(RTAC68U) || defined(RTAC88U) || defined(RTAC3100) || defined(RTAC5300) || defined(RTAC86U) // kludge
+#if !defined(RTAC3200) && !defined(RTAC56U) && !defined(RTAC87U)	// Kludge
 	fw_check_pre();
 #endif
 #endif

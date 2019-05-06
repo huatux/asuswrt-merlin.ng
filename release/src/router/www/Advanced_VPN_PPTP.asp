@@ -176,6 +176,12 @@ function initial(){
 	if(!ipsec_srv_support) {
 		delete vpn_server_array.IPSEC;
 	}
+
+	// Models with encrypted passwords
+	if (based_modelid == "RT-AX88U") {
+		showhide("show_pass_div", 0);
+	}
+
 	$('#divSwitchMenu').html(gen_switch_menu(vpn_server_array, "PPTP"));
 
 }
@@ -779,7 +785,7 @@ function check_vpn_conflict() {		//if conflict with LAN ip & DHCP ip pool & stat
 	var origin_lan_ip = '<% nvram_get("lan_ipaddr"); %>';
 	var lan_ip_subnet = origin_lan_ip.split(".")[0]+"."+origin_lan_ip.split(".")[1]+"."+origin_lan_ip.split(".")[2]+".";
 	var lan_ip_end = parseInt(origin_lan_ip.split(".")[3]);
-	var dhcp_staticlists = '<% nvram_get("dhcp_staticlist"); %>'.replace(/&#62/g, ">").replace(/&#60/g, "<");;
+	var dhcp_staticlists = "<% nvram_get("dhcp_staticlist"); %>".replace(/&#62/g, ">").replace(/&#60/g, "<");
 	var staticclist_row = dhcp_staticlists.split('<');
 	var pptpd_clients_subnet = document.form._pptpd_clients_start.value.split(".")[0] 
 					   + "." + document.form._pptpd_clients_start.value.split(".")[1] 
@@ -926,7 +932,7 @@ function check_vpn_conflict() {		//if conflict with LAN ip & DHCP ip pool & stat
 												</li>
 											</ul>
 										</div>
-										<div style="color:#FFCC00;"><input type="checkbox" name="show_pass" id="show_pass" onclick="showpptpd_clientlist(); parsePPTPClients();pptpd_connected_status();">Show passwords</div>
+										<div style="color:#FFCC00;" id="show_pass_div"><input type="checkbox" name="show_pass" id="show_pass" onclick="showpptpd_clientlist(); parsePPTPClients();pptpd_connected_status();">Show passwords</div>
 										<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table" style="margin-top:8px;">
 											<thead>
 											<tr>

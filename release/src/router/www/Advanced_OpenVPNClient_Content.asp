@@ -11,7 +11,6 @@
 <title><#Web_Title#> - OpenVPN Client Settings</title>
 <link rel="stylesheet" type="text/css" href="index_style.css">
 <link rel="stylesheet" type="text/css" href="form_style.css">
-
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
@@ -158,39 +157,22 @@ switch (openvpn_unit) {
 
 enforce_ori = "<% nvram_get("vpn_client_enforce"); %>";
 policy_ori = "<% nvram_get("vpn_client_rgw"); %>";
+dnsmode_ori = "<% nvram_get("vpn_client_adns"); %>";
 
 ciphersarray = [
 		["AES-128-CBC"],
-		["AES-128-CFB"],
-		["AES-128-OFB"],
 		["AES-192-CBC"],
-		["AES-192-CFB"],
-		["AES-192-OFB"],
 		["AES-256-CBC"],
-		["AES-256-CFB"],
-		["AES-256-OFB"],
 		["AES-128-GCM"],
 		["AES-192-GCM"],
 		["AES-256-GCM"],
 		["BF-CBC"],
-		["BF-CFB"],
-		["BF-OFB"],
 		["CAST5-CBC"],
-		["CAST5-CFB"],
-		["CAST5-OFB"],
 		["DES-CBC"],
-		["DES-CFB"],
 		["DES-EDE3-CBC"],
-		["DES-EDE3-CFB"],
-		["DES-EDE3-OFB"],
 		["DES-EDE-CBC"],
-		["DES-EDE-CFB"],
-		["DES-EDE-OFB"],
-		["DES-OFB"],
 		["DESX-CBC"],
-		["IDEA-CBC"],
-		["IDEA-CFB"],
-		["IDEA-OFB"]
+		["IDEA-CBC"]
 ];
 
 var digestsarray = [
@@ -293,13 +275,13 @@ function initial()
 	update_visibility();
 
 
-	var custom2 = document.form.vpn_client_custom2.value;
+	var cust2 = document.form.vpn_client_cust2.value;
 	if (isSupport("hnd")) {
 		document.getElementById("vpn_client_custom_x").maxLength = 170 * 3;     // 255 * 3 - base64 overhead
-		custom2 += document.form.vpn_client_custom21.value +
-		           document.form.vpn_client_custom22.value;
+		cust2 += document.form.vpn_client_cust21.value +
+		           document.form.vpn_client_cust22.value;
 	}
-	document.getElementById("vpn_client_custom_x").value = Base64.decode(custom2);
+	document.getElementById("vpn_client_custom_x").value = Base64.decode(cust2);
 
 	setTimeout("getConnStatus()", 1000);
 
@@ -613,13 +595,16 @@ function applyRule(manual_switch){
 		split_custom2(Base64.encode(document.getElementById("vpn_client_custom_x").value));
 	} else {
 		document.form.vpn_client_clientlist.value = tmp_value;
-		document.form.vpn_client_custom2.value = Base64.encode(document.getElementById("vpn_client_custom_x").value);
+		document.form.vpn_client_cust2.value = Base64.encode(document.getElementById("vpn_client_custom_x").value);
 	}
 
 	if (((enforce_ori != getRadioValue(document.form.vpn_client_enforce)) ||
 	     (policy_ori != document.form.vpn_client_rgw.value)) &&
 	    (client_state == 0) && (manual_switch == 0))
 		document.form.action_script.value += "start_vpnrouting"+openvpn_unit;
+
+	if ((dnsmode_ori != document.form.vpn_client_adns.value) && (client_state != 0))
+		document.form.action_script.value += ";restart_dnsmasq"
 
 	document.form.submit();
 }
@@ -635,12 +620,12 @@ function split_clientlist(clientlist){
 	document.form.vpn_client_clientlist5.value = clientlist.substring(counter, (counter+=255));
 }
 
-function split_custom2(custom2){
+function split_custom2(cust2){
 	var counter = 0;
-	document.form.vpn_client_custom2.value = custom2.substring(counter, (counter+=255));
+	document.form.vpn_client_cust2.value = cust2.substring(counter, (counter+=255));
 
-	document.form.vpn_client_custom21.value = custom2.substring(counter, (counter+=255));
-	document.form.vpn_client_custom22.value = custom2.substring(counter, (counter+=255));
+	document.form.vpn_client_cust21.value = cust2.substring(counter, (counter+=255));
+	document.form.vpn_client_cust22.value = cust2.substring(counter, (counter+=255));
 }
 
 function change_vpn_unit(val){
@@ -1131,9 +1116,9 @@ function refreshVPNIP() {
 <input type="hidden" name="vpn_client_clientlist3" value="<% nvram_clean_get("vpn_client_clientlist3"); %>">
 <input type="hidden" name="vpn_client_clientlist4" value="<% nvram_clean_get("vpn_client_clientlist4"); %>">
 <input type="hidden" name="vpn_client_clientlist5" value="<% nvram_clean_get("vpn_client_clientlist5"); %>">
-<input type="hidden" name="vpn_client_custom2" value="<% nvram_get("vpn_client_custom2"); %>">
-<input type="hidden" name="vpn_client_custom21" value="<% nvram_get("vpn_client_custom21"); %>">
-<input type="hidden" name="vpn_client_custom22" value="<% nvram_get("vpn_client_custom22"); %>">
+<input type="hidden" name="vpn_client_cust2" value="<% nvram_get("vpn_client_cust2"); %>">
+<input type="hidden" name="vpn_client_cust21" value="<% nvram_get("vpn_client_cust21"); %>">
+<input type="hidden" name="vpn_client_cust22" value="<% nvram_get("vpn_client_cust22"); %>">
 
 <table class="content" align="center" cellpadding="0" cellspacing="0">
   <tr>
@@ -1446,7 +1431,7 @@ function refreshVPNIP() {
 						<td>
 							<input type="radio" name="vpn_client_tlsremote" class="input" onclick="update_visibility();" value="1" <% nvram_match_x("", "vpn_client_tlsremote", "1", "checked"); %>><#checkbox_Yes#>
 							<input type="radio" name="vpn_client_tlsremote" class="input" onclick="update_visibility();" value="0" <% nvram_match_x("", "vpn_client_tlsremote", "0", "checked"); %>><#checkbox_No#>
-							<label style="padding-left:3em;" id="client_cn_label">Common name:</label><input type="text" maxlength="64" class="input_25_table" id="vpn_client_cn" name="vpn_client_cn" value="<% nvram_get("vpn_client_cn"); %>">
+							<label style="padding-left:3em;" id="client_cn_label">Common name:</label><input type="text" maxlength="255" class="input_25_table" id="vpn_client_cn" name="vpn_client_cn" value="<% nvram_get("vpn_client_cn"); %>">
 						</td>
 					</tr>
 					<tr>
@@ -1484,12 +1469,12 @@ function refreshVPNIP() {
 							<input type="text" class="input_15_table" maxlength="15" name="clientlist_deviceName" onClick="hideClients_Block();" onKeyPress="return validator.isString(this, event);">
 						</td>
 						<td width="29%">
-							<input type="text" class="input_18_table" maxlength="18" name="clientlist_ipAddr">
+							<input type="text" class="input_18_table" maxlength="18" name="clientlist_ipAddr" onKeyPress="return validator.isIPAddrPlusNetmask(this, event)" autocomplete="off" autocorrect="off" autocapitalize="off">
 							<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>" onmouseover="over_var=1;" onmouseout="over_var=0;">
 							<div id="ClientList_Block_PC" class="ClientList_Block_PC"></div>
 						</td>
 						<td width="25%">
-							<input type="text" class="input_18_table" maxlength="18" name="clientlist_dstipAddr">
+							<input type="text" class="input_18_table" maxlength="18" name="clientlist_dstipAddr" onKeyPress="return validator.isIPAddrPlusNetmask(this, event)" autocomplete="off" autocorrect="off" autocapitalize="off">
 						</td>
 						<td width="10%">
 							<select name="clientlist_iface" class="input_option">

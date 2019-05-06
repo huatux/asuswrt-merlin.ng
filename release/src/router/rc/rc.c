@@ -816,7 +816,11 @@ static const applets_t applets[] = {
 #endif
 	{ "halt",			reboothalt_main			},
 	{ "reboot",			reboothalt_main			},
+#ifndef RTCONFIG_NTPD
 	{ "ntp", 			ntp_main			},
+#else
+	{ "ntpd_synced",		ntpd_synced_main		},
+#endif
 #ifdef RTCONFIG_NETOOL
 	{ "netool", 			netool_main			},
 #endif
@@ -853,7 +857,7 @@ static const applets_t applets[] = {
 #endif
 	{ "disk_remove",		diskremove_main			},
 #endif
-	{ "firmware_check",		firmware_check_main             },
+	{ "firmware_check",		firmware_check_main		},
 #ifdef RTAC68U
 	{ "firmware_enc_crc",		firmware_enc_crc_main		},
 	{ "fw_check",			fw_check_main			},

@@ -91,7 +91,7 @@ var pool_start_end = parseInt(pool_start.split(".")[3]);
 var pool_end_end = parseInt(pool_end.split(".")[3]);
 
 var static_enable = '<% nvram_get("dhcp_static_x"); %>';
-var dhcp_staticlists = '<% nvram_get("dhcp_staticlist"); %>';
+var dhcp_staticlists = "<% nvram_get("dhcp_staticlist"); %>";
 var staticclist_row = dhcp_staticlists.split('&#60');
 
 var lan_domain_curr = '<% nvram_get("lan_domain"); %>';
@@ -148,11 +148,6 @@ function initial(){
 			document.getElementById("yadns_hint").style.display = "";
 			document.getElementById("yadns_hint").innerHTML = "<span><#YandexDNS_settings_hint#></span>";
 		}
-	}
-
-	if (isSupport("dnssec")){
-		document.getElementById("dnssec_tr").style.display = "";
-		showhide("dnssec_strict_tr", "<% nvram_get("dnssec_enable"); %>" == "1" ? 1 : 0);
 	}
 
 	document.form.sip_server.disabled = true;
@@ -1028,34 +1023,6 @@ function parse_vpnc_dev_policy_list(_oriNvram) {
                                   <input type="radio" value="0" name="dhcpd_dns_router" class="content_input_fd" onClick="return change_common_radio(this, 'LANHostConfig', 'dhcpd_dns_router', '0')" <% nvram_match("dhcpd_dns_router", "0", "checked"); %>><#checkbox_No#>
                                 </td>
                           </tr>
-			  <tr>
-				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,5);">Forward local domain queries to upstream DNS</a></th>
-				<td colspan="2" style="text-align:left;">
-					<input type="radio" value="1" name="lan_dns_fwd_local"  onclick="return change_common_radio(this, 'LANHostConfig', 'lan_dns_fwd_local', '1')" <% nvram_match("lan_dns_fwd_local", "1", "checked"); %> /><#checkbox_Yes#>
-					<input type="radio" value="0" name="lan_dns_fwd_local"  onclick="return change_common_radio(this, 'LANHostConfig', 'lan_dns_fwd_local', '0')" <% nvram_match("lan_dns_fwd_local", "0", "checked"); %> /><#checkbox_No#>
-				</td>
-			  </tr>
-			  <tr id="dnssec_tr" style="display:none;">
-				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,6);">Enable DNSSEC support</a></th>
-				<td colspan="2" style="text-align:left;">
-					<input type="radio" value="1" name="dnssec_enable" onclick="showhide('dnssec_strict_tr',1);" <% nvram_match("dnssec_enable", "1", "checked"); %> /><#checkbox_Yes#>
-					<input type="radio" value="0" name="dnssec_enable" onclick="showhide('dnssec_strict_tr',0);" <% nvram_match("dnssec_enable", "0", "checked"); %> /><#checkbox_No#>
-				</td>
-			  </tr>
-			  <tr id="dnssec_strict_tr" style="display:none;">
-				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,25);">DNSSEC: strict unsigned validation</a></th>
-				<td colspan="2" style="text-align:left;">
-					<input type="radio" value="1" name="dnssec_check_unsigned_x" <% nvram_match("dnssec_check_unsigned_x", "1", "checked"); %> /><#checkbox_Yes#>
-					<input type="radio" value="0" name="dnssec_check_unsigned_x" <% nvram_match("dnssec_check_unsigned_x", "0", "checked"); %> /><#checkbox_No#>
-				</td>
-			  </tr>
-			  <tr>
-				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,9);">Enable DNS Rebind protection</a></th>
-				<td colspan="2" style="text-align:left;">
-					<input type="radio" value="1" name="dns_norebind" <% nvram_match("dns_norebind", "1", "checked"); %> /><#checkbox_Yes#>
-					<input type="radio" value="0" name="dns_norebind" <% nvram_match("dns_norebind", "0", "checked"); %> /><#checkbox_No#>
-				</td>
-			  </tr>
 			  <tr>
 				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(5,8);"><#LANHostConfig_x_WINSServer_itemname#></a></th>
 				<td>

@@ -186,6 +186,12 @@ static void do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/pem.h>
+#include <openssl/opensslconf.h>
+#include <openssl/opensslv.h>
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define X509_getm_notBefore X509_get_notBefore
+#define X509_getm_notAfter X509_get_notAfter
+#endif
 #ifdef RTCONFIG_LETSENCRYPT
 #include <letsencrypt_config.h>
 #endif
@@ -2058,227 +2064,82 @@ ej_vpn_client_get_parameter(int eid, webs_t wp, int argc, char_t **argv)
 
 	return (websWrite(wp,"%s",""));
 }
+
+void
+_get_vpn_crt_value(int eid, webs_t wp, int type, int cert, int idx) {
+	char buf[8000];
+	char filename[32];
+	char *c;
+
+	get_ovpn_filename(type, idx, cert, filename, sizeof(filename));
+	get_ovpn_key(type, idx, cert, buf, sizeof(buf));
+
+	websWrite(wp, "%s=['", filename);
+
+	for (c = buf; *c; c++) {
+		if (isprint(*c) &&
+			*c != '"' && *c != '&' && *c != '<' && *c != '>')
+			websWrite(wp, "%c", *c);
+		else
+			websWrite(wp, "&#%d", *c);
+	}
+	websWrite(wp, "'];\n");
+}
+
 static int
 ej_vpn_crt_server(int eid, webs_t wp, int argc, char **argv) {
-	char buf[8000];
-	char file_name[32];
 	int idx = 0;
 
 	for (idx = 1; idx <= OVPN_SERVER_MAX; idx++) {
-		char *c;
 
 		//vpn_crt_server_ca
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_ca", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_CA, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_CA, idx);
 
 		//vpn_crt_server_crt
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_crt", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_CERT, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_CERT, idx);
 
 		//vpn_crt_server_key
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_key", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_KEY, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_KEY, idx);
 
 		//vpn_crt_server_dh
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_dh", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_DH, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_DH, idx);
 
 		//vpn_crt_server_crl
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_crl", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_CRL, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_CRL, idx);
 
 		//vpn_crt_server_static
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_static", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_STATIC, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_STATIC, idx);
 
 		//vpn_crt_server_extra
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_server%d_extra", idx);
-		get_ovpn_key(OVPN_TYPE_SERVER, idx, OVPN_SERVER_CA_EXTRA, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-			websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_SERVER, OVPN_SERVER_CA_EXTRA, idx);
 
-
-		websWrite(wp, "\n");
 	}
 	return 0;
 }
 static int
 ej_vpn_crt_client(int eid, webs_t wp, int argc, char **argv) {
-	char buf[8000];
-	char file_name[32];
 	int idx = 0;
 
 	for (idx = 1; idx <= OVPN_CLIENT_MAX; idx++) {
-		char *c;
 
 		//vpn_crt_client_ca
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_ca", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_CA, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_CA, idx);
 
 		//vpn_crt_client_crt
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_crt", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_CERT, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_CERT, idx);
 
 		//vpn_crt_client_key
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_key", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_KEY, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_KEY, idx);
 
 		//vpn_crt_client_static
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_static", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_STATIC, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_STATIC, idx);
 
 		//vpn_crt_client_crl
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_crl", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_CRL, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_CRL, idx);
 
 		//vpn_crt_client_extra
-		memset(buf, 0, sizeof(buf));
-		memset(file_name, 0, sizeof(file_name));
-		sprintf(file_name, "vpn_crt_client%d_extra", idx);
-		get_ovpn_key(OVPN_TYPE_CLIENT, idx, OVPN_CLIENT_CA_EXTRA, buf, sizeof(buf));
-		websWrite(wp, "%s=['", file_name);
-		for (c = buf; *c; c++) {
-			if (isprint(*c) &&
-				*c != '"' && *c != '&' && *c != '<' && *c != '>')
-					websWrite(wp, "%c", *c);
-			else
-				websWrite(wp, "&#%d", *c);
-		}
-		websWrite(wp, "'];\n");
+		_get_vpn_crt_value(eid, wp, OVPN_TYPE_CLIENT, OVPN_CLIENT_CA_EXTRA, idx);
 
-		websWrite(wp, "\n");
 	}
 	return 0;
 }
@@ -2729,7 +2590,7 @@ int validate_instance(webs_t wp, char *name, json_object *root)
 			value = get_cgi_json(strcat_r(prefix, name+15, tmp),root);
 			if(value) {
 				ovpn_key_t key_type;
-				char buf[4096];
+				char buf[8000];
 
 				if(!strcmp(name+15, "static")) {
 					key_type = OVPN_SERVER_STATIC;
@@ -2784,7 +2645,7 @@ int validate_instance(webs_t wp, char *name, json_object *root)
 			value = get_cgi_json(strcat_r(prefix, name+15, tmp),root);
 			if(value) {
 				ovpn_key_t key_type;
-				char buf[4096];
+				char buf[8000];
 
 				if(!strcmp(name+15, "static")) {
 					key_type = OVPN_CLIENT_STATIC;
@@ -3163,7 +3024,7 @@ static int validate_apply(webs_t wp, json_object *root) {
 #ifdef RTCONFIG_OPENVPN
 			else if(!strncmp(name, "vpn_crt_server_", 15) && unit!=-1) {
 				ovpn_key_t key_type;
-				char buf[4096];
+				char buf[8000];
 
 				snprintf(prefix, sizeof(prefix), "vpn_crt_server%d_", unit);
 				(void)strcat_r(prefix, name+15, tmp);
@@ -3204,7 +3065,7 @@ static int validate_apply(webs_t wp, json_object *root) {
 			}
 			else if(!strncmp(name, "vpn_crt_client_", 15) && unit!=-1) {
 				ovpn_key_t key_type;
-				char buf[4096];
+				char buf[8000];
 
 				snprintf(prefix, sizeof(prefix), "vpn_crt_client%d_", unit);
 				(void)strcat_r(prefix, name+15, tmp);
@@ -12469,7 +12330,7 @@ do_vpnupload_cgi(char *url, FILE *stream)
 		//websApply(stream, "OvpnChecking.asp");
 
 		if(!strcmp(filetype, "ovpn")) {
-			reset_ovpn_setting(OVPN_TYPE_CLIENT, unit);
+			reset_ovpn_setting(OVPN_TYPE_CLIENT, unit, 0);
 			ret = read_config_file(VPN_CLIENT_UPLOAD, unit);
 			nvram_set_int("vpn_upload_state", ret);
 			nvram_commit();
@@ -15849,8 +15710,8 @@ struct mime_handler mime_handlers[] = {
 	{ "update_customList.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "manifest.appcache", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "offline.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "wcdma_list.js", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "help_content.js", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+	{ "wcdma_list.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+	{ "help_content.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "httpd_check.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "manifest.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "update_cloudstatus.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
@@ -19736,15 +19597,15 @@ int ej_backup_nvram(int eid, webs_t wp, int argc, char_t **argv)
 		if (!v) {
 			v = "";
 		}
-		websWrite(wp, "\t%s: '", k);
+		websWrite(wp, "\t%s: \"", k);
 		websWrite(wp, v);
 //		web_puts((p == NULL) ? "'\n" : "',\n");
-		websWrite(wp, "',\n");
+		websWrite(wp, "\",\n");
 	}
 	free(list);
-	websWrite(wp, "\thttp_id: '");
+	websWrite(wp, "\thttp_id: \"");
 	websWrite(wp, nvram_safe_get("http_id"));
-	websWrite(wp, "'};\n");
+	websWrite(wp, "\"};\n");
 //	web_puts("};\n");
 	return 0;
 }
@@ -22637,7 +22498,11 @@ ej_httpd_cert_info(int eid, webs_t wp, int argc, char **argv)
 	if(http_enable == 0)    //http only
 	{
 		if(le_enable == 1)
+#ifdef RTCONFIG_OPENSSL11      // Kludge as we can't link against libletsencrypt due to different OpenSSL versions
+			snprintf(cert_path, sizeof(cert_path), "/jffs/.le/%s/cert.pem", nvram_safe_get("ddns_hostname_x"));
+#else
 			get_path_le_domain_cert(cert_path, sizeof(cert_path));
+#endif
 		else if(le_enable == 2)
 			snprintf(cert_path, sizeof(cert_path), "%s", UPLOAD_CERT);
 		else
@@ -22671,11 +22536,9 @@ ej_httpd_cert_info(int eid, webs_t wp, int argc, char **argv)
 	_get_common_name(buf, issuer, sizeof(issuer));
 	X509_NAME_oneline(X509_get_subject_name(x509data), buf, sizeof(buf));
 	_get_common_name(buf, subject, sizeof(subject));
-	//strptime(x509data->cert_info->validity->notBefore->data, "%y%m%d%H%M%SZ", &tm, NULL);
-	ASN1_TimeToTM(x509data->cert_info->validity->notBefore, &tm);
+	ASN1_TimeToTM(X509_getm_notBefore(x509data), &tm);
 	snprintf(notBefore, sizeof(notBefore), "%d/%d/%d", tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday);
-	//strptime(x509data->cert_info->validity->notAfter->data, "%y%m%d%H%M%SZ", &tm, NULL);
-	ASN1_TimeToTM(x509data->cert_info->validity->notAfter, &tm);
+	ASN1_TimeToTM(X509_getm_notAfter(x509data), &tm);
 	snprintf(notAfter, sizeof(notAfter), "%d/%d/%d", tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday);
 
 	websWrite(wp, "{");
@@ -23106,13 +22969,9 @@ ej_get_wan_lan_status(int eid, webs_t wp, int argc, char **argv)
 	FILE *fp;
 	char line[128], name[sizeof("WAN XXXXXXXXXX")], *ptr, *item, *port, *speed;
 	int wan_count, lan_count, ret = 0;
-
-	struct json_object *wanLanStatus = json_object_new_object();
-	struct json_object *wanLanLinkSpeed = json_object_new_object();
-	struct json_object *wanLanCount = json_object_new_object();
-
-	if (wanLanStatus == NULL || wanLanLinkSpeed == NULL || wanLanCount == NULL)
-		goto error;
+	struct json_object *wanLanLinkSpeed = NULL;
+	struct json_object *wanLanCount = NULL;
+	struct json_object *wanLanStatus = NULL;
 
 	fp = popen("ATE Get_WanLanStatus", "r");
 	if (fp == NULL)
@@ -23120,9 +22979,18 @@ ej_get_wan_lan_status(int eid, webs_t wp, int argc, char **argv)
 
 	ptr = fgets(line, sizeof(line), fp);
 	pclose(fp);
+	if (ptr == NULL)
+		goto error;
+	ptr = strsep(&ptr, "\r\n");
+
+	wanLanStatus = json_object_new_object();
+	wanLanLinkSpeed = json_object_new_object();
+	wanLanCount = json_object_new_object();
+	if (wanLanStatus == NULL || wanLanLinkSpeed == NULL || wanLanCount == NULL)
+		goto error_put;
 
 	wan_count = lan_count = 0;
-	while ((item = strsep(&ptr, ";\r\n")) != NULL) {
+	while ((item = strsep(&ptr, ";")) != NULL) {
 		if (vstrsep(item, "=", &port, &speed) < 2)
 			continue;
 #if defined(DSL_AC68U)
@@ -23148,22 +23016,24 @@ ej_get_wan_lan_status(int eid, webs_t wp, int argc, char **argv)
 	json_object_object_add(wanLanCount, "lanCount", json_object_new_int(lan_count));
 	json_object_object_add(wanLanStatus, "portSpeed", wanLanLinkSpeed);
 	json_object_object_add(wanLanStatus, "portCount", wanLanCount);
+	wanLanLinkSpeed = wanLanCount = NULL;
 
 	ptr = (char *)json_object_get_string(wanLanStatus);
 	if (ptr == NULL)
-		goto error;
+		goto error_put;
 
 	ret = websWrite(wp, "%s", ptr);
 
-error:
-	if (ret == 0)
-		ret = websWrite(wp, "{}");
+error_put:
 	if (wanLanStatus)
 		json_object_put(wanLanStatus);
 	if (wanLanLinkSpeed)
 		json_object_put(wanLanLinkSpeed);
 	if (wanLanCount)
 		json_object_put(wanLanCount);
+error:
+	if (ret == 0)
+		ret = websWrite(wp, "{}");
 
 	return ret;
 }
@@ -23261,7 +23131,9 @@ struct ej_handler ej_handlers[] = {
 	{ "iptmon", ej_iptmon},
 	{ "ipt_bandwidth", ej_ipt_bandwidth},
 #endif
-
+#ifdef RTCONFIG_BWDPI
+	{ "bwdpi_conntrack", ej_bwdpi_conntrack},
+#endif
 	{ "bandwidth", ej_bandwidth},
 #ifdef RTCONFIG_DSL
 	{ "spectrum", ej_spectrum}, //Ren
@@ -23630,6 +23502,9 @@ struct ej_handler ej_handlers[] = {
 #endif
 	{ "get_sw_mode", ej_get_sw_mode},
 	{ "get_iptvSettings", ej_get_iptvSettings },
+#ifdef RTCONFIG_DNSPRIVACY
+	{ "get_dnsprivacy_presets", ej_get_dnsprivacy_presets },
+#endif
 	{ NULL, NULL }
 };
 
@@ -23927,11 +23802,13 @@ do_jffsupload_cgi(char *url, FILE *stream)
 				shutdown(fileno(stream), SHUT_RDWR);
 		} else {
 			logmessage("httpd", "Error while restoring JFFS backup - no change made");
+			unlink(JFFS_BACKUP_FILE);
 		}
 	}
 	else
 	{
 		websApply(stream, "UploadError.asp");
+		unlink(JFFS_BACKUP_FILE);
 	}
 }
 
@@ -23939,31 +23816,30 @@ static void
 do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 {
 	FILE *fifo = NULL;
-	char buf[1024];
 	int count, ret = EINVAL, ch;
 	long filelen = 0;
 
 	/* Look for our part */
 	while (len > 0) {
-		if (!fgets(buf, MIN(len + 1, sizeof(buf)), stream)) {
+		if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream)) {
 			goto err;
 		}
 
-		len -= strlen(buf);
+		len -= strlen(post_buf);
 
-		if (!strncasecmp(buf, "Content-Disposition:", 20)
-				&& strstr(buf, "name=\"file2\""))
+		if (!strncasecmp(post_buf, "Content-Disposition:", 20)
+				&& strstr(post_buf, "name=\"file2\""))
 			break;
 	}
 
 	/* Skip boundary and headers */
 	while (len > 0) {
-		if (!fgets(buf, MIN(len + 1, sizeof(buf)), stream)) {
+		if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream)) {
 			goto err;
 		}
 
-		len -= strlen(buf);
-		if (!strcmp(buf, "\n") || !strcmp(buf, "\r\n")) {
+		len -= strlen(post_buf);
+		if (!strcmp(post_buf, "\n") || !strcmp(post_buf, "\r\n")) {
 			break;
 		}
 	}
@@ -23972,15 +23848,16 @@ do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 		goto err;
 
 	while (len > 0) {
-		count = fread(buf, 1, MIN(len, sizeof(buf)), stream);
+		count = fread(post_buf, 1, MIN(len, sizeof(post_buf)), stream);
 		if(count <= 0)
 			goto err;
 
 		len -= count;
 		filelen += count;
-		fwrite(buf, 1, count, fifo);
+		fwrite(post_buf, 1, count, fifo);
 	}
 
+	ret = 0;
 	fclose(fifo);
 	fifo = NULL;
 
@@ -24000,3 +23877,46 @@ err:
 	fcntl(fileno(stream), F_SETOWN, -ret);
 }
 #endif // (defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2)
+
+#ifdef RTCONFIG_DNSPRIVACY
+int
+ej_get_dnsprivacy_presets(int eid, webs_t wp, int argc, char_t **argv)
+{
+	FILE *fp;
+	char buf[256], *type, *datafile, *ptr, *item, *lsep, *fsep;
+	int ret = 0;
+
+	if (ejArgs(argc, argv, "%s", &type) < 1) {
+		websError(wp, 400, "Insufficient args\n");
+		return -1;
+	}
+
+	if (!strcmp(type, "dot"))
+		datafile = "/rom/dot-servers.dat";
+	else {
+		websError(wp, 400, "Invalid argument\n");
+		return -1;
+	}
+
+	if (!(fp = fopen(datafile, "r")))
+		return 0;
+
+	for (lsep = ""; (ptr = fgets(buf, sizeof(buf), fp)) != NULL;) {
+		buf[sizeof(buf) - 1] = '\0';
+		ptr = strsep(&ptr, "#\n");
+		if (*ptr == '\0')
+			continue;
+
+		ret += websWrite(wp, "%s[", lsep);
+		for (fsep = ""; (item = strsep(&ptr, ",")) != NULL;) {
+			ret += websWrite(wp, "%s\"%s\"", fsep, item);
+			fsep = ",";
+		}
+		ret += websWrite(wp, "]");
+		lsep = ",";
+	}
+	fclose(fp);
+
+	return ret;
+}
+#endif

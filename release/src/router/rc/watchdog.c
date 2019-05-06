@@ -3633,14 +3633,6 @@ void timecheck(void)
 
 		/*transfer wl_sched NULL value to 000000 value, because
 		of old version firmware with wrong default value*/
-		if(!strcmp(nvram_safe_get("wl_sched"), "") || !strcmp(nvram_safe_get(strcat_r(prefix, "sched", tmp)), ""))
-		{
-			nvram_set(strcat_r(prefix, "sched", tmp),"000000");
-			nvram_set("wl_sched", "000000");
-		}
-
-		/*transfer wl_sched NULL value to 000000 value, because
-		of old version firmware with wrong default value*/
 		if (!strcmp(nvram_safe_get(strcat_r(prefix, "sched", tmp)), ""))
 		{
 			nvram_set(strcat_r(prefix, "sched", tmp),"000000");
@@ -3745,8 +3737,9 @@ void timecheck(void)
 			if (timecheck_reboot(reboot_schedule))
 			{
 				_dprintf("reboot plan alert...\n");
-				sleep(1);
-				eval("reboot");
+//				sleep(1);
+//				eval("reboot");
+				notify_rc("reboot");
 			}
 		}
 	}
@@ -5302,17 +5295,32 @@ void wave_monitor_check()
 
 void dnsmasq_check()
 {
-	if (!pids("dnsmasq")) {
-		if (nvram_get_int("asus_mfg") == 1)
-			return;
-
-	if (!is_routing_enabled()
-#ifdef RTCONFIG_WIRELESSREPEATER
-		&& sw_mode() != SW_MODE_REPEATER
-#endif
-	)
+	if (nvram_get_int("asus_mfg") == 1)
 		return;
 
+	if (!is_routing_enabled()
+		&& (repeater_mode()
+#if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
+		|| psr_mode() || mediabridge_mode()
+#elif defined(RTCONFIG_REALTEK)
+		|| mediabridge_mode()
+#endif
+		)
+#ifdef RTCONFIG_DPSTA
+		&& !(dpsta_mode() && nvram_get_int("re_mode") == 0)
+#endif
+	) {
+#ifdef RTCONFIG_WIFI_SON
+		if (sw_mode() == SW_MODE_AP && nvram_match("cfg_master", "1")) {
+			if (nvram_get_int("wl0.1_bss_enabled"))
+				gen_apmode_dnsmasq();
+			return;
+		} else
+#endif
+		return;
+	}
+
+	if (!pids("dnsmasq")) {
 #if defined(RTL_WTDOG)
 		stop_rtl_watchdog();
 #endif
@@ -5323,6 +5331,19 @@ void dnsmasq_check()
 		start_rtl_watchdog();
 #endif
 	}
+#ifdef RTCONFIG_DNSPRIVACY
+	else if (nvram_get_int("dnspriv_enable") && !pids("stubby")) {
+#if defined(RTL_WTDOG)
+		stop_rtl_watchdog();
+#endif
+		start_stubby();
+		TRACE_PT("watchdog: stubby died. start stubby...\n");
+
+#if defined(RTL_WTDOG)
+		start_rtl_watchdog();
+#endif
+	}
+#endif
 }
 
 #ifdef RTCONFIG_NEW_USER_LOW_RSSI
@@ -5815,7 +5836,7 @@ static void auto_firmware_check()
 
 				sscanf(nvram_safe_get("webs_state_info"), "%3[^_]_%2[^_]_%15s", version, revision, build);
 				logmessage("watchdog", "New firmware version %s.%s_%s is available.", version, revision, build);
-				run_custom_script("update-notification", NULL);
+				run_custom_script("update-notification", 0, NULL, NULL);
 			}
 
 #ifdef RTCONFIG_FORCE_AUTO_UPGRADE

@@ -1,6 +1,6 @@
 /* intprops.h -- properties of integer types
 
-   Copyright (C) 2001-2018 Free Software Foundation, Inc.
+   Copyright (C) 2001-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify it
    under the terms of the GNU General Public License as published
@@ -342,8 +342,8 @@
    Arguments should be free of side effects.  */
 #define _GL_BINARY_OP_OVERFLOW(a, b, op_result_overflow)        \
   op_result_overflow (a, b,                                     \
-                      _GL_INT_MINIMUM ((1 ? 0 : (b)) + (a)),    \
-                      _GL_INT_MAXIMUM ((1 ? 0 : (b)) + (a)))
+                      _GL_INT_MINIMUM (_GL_INT_CONVERT (a, b)), \
+                      _GL_INT_MAXIMUM (_GL_INT_CONVERT (a, b)))
 
 /* Store the low-order bits of A + B, A - B, A * B, respectively, into *R.
    Return 1 if the result overflows.  See above for restrictions.  */

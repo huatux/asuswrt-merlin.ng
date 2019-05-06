@@ -710,6 +710,7 @@ extern void adjust_vpnc_config(void);
 #if defined(RTCONFIG_NOTIFICATION_CENTER)
 extern void force_off_push_msg(void);
 #endif
+extern void adjust_jffs_content(void);
 
 // format.c
 extern void adjust_url_urlelist();
@@ -1302,13 +1303,8 @@ extern void stop_ovpn_server(int serverNum);
 extern void start_ovpn_eas(void);
 extern void stop_ovpn_eas(void);
 extern void run_ovpn_fw_script();
-extern void write_ovpn_dnsmasq_config(FILE*);
-extern int write_ovpn_resolv(FILE*, FILE*);
-//static inline void start_ovpn_eas() { }
-//#define write_ovpn_resolv(f) (0)
 extern void create_ovpn_passwd();
 extern void stop_ovpn_all();
-extern void update_ovpn_profie_remote();
 #endif
 
 // wanduck.c
@@ -1385,6 +1381,10 @@ extern int restart_dnsmasq(int need_link_DownUp);
 extern void start_dnsmasq(void);
 extern void stop_dnsmasq(void);
 extern void reload_dnsmasq(void);
+#ifdef RTCONFIG_DNSPRIVACY
+extern void start_stubby(void);
+extern void stop_stubby(void);
+#endif
 extern int ddns_updated_main(int argc, char *argv[]);
 #ifdef RTCONFIG_IPV6
 extern void add_ip6_lanaddr(void);
@@ -1621,6 +1621,14 @@ extern void dnsfilter_settings(FILE *fp, char *lan_ip);
 extern void dnsfilter6_settings(FILE *fp, char *lan_if, char *lan_ip);
 extern void dnsfilter_setup_dnsmasq(FILE *fp);
 #endif
+extern void dnsfilter_dot_rules(FILE *fp, char *lan_if);
+
+// ntpd.c
+#ifdef RTCONFIG_NTPD
+extern int start_ntpd(void);
+extern void stop_ntpd(void);
+extern int ntpd_synced_main(int argc, char *argv[]);
+#endif
 
 // lan.c
 #ifdef RTCONFIG_TIMEMACHINE
@@ -1793,8 +1801,8 @@ extern int dump_powertable(void);
 
 //speedtest.c
 extern int speedtest_main(int argc, char **argv);
-extern int speedtest();
 extern void wan_bandwidth_detect(void);
+extern int speedtest();
 
 #if defined(RTCONFIG_BWDPI)
 extern int bwdpi_main(int argc, char **argv);

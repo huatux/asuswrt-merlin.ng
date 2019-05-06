@@ -162,6 +162,10 @@ function submitForm(){
 				document.form.action_script.value = "restart_httpd;restart_webdav;restart_ddns_le";
 			else
 				document.form.action_script.value += ";restart_httpd;restart_webdav";
+
+		}
+		if (('<% nvram_get("enable_ftp"); %>' == "1") && ('<% nvram_get("ftp_tls"); %>' == "1")) {
+			document.form.action_script.value += ";restart_ftpd";
 		}
 	}
 
@@ -222,6 +226,7 @@ function ddns_load_body(){
         }
 	inputCtrl(document.form.ddns_refresh_x, 1);
 	showhide("ddns_ipcheck_tr", 1);
+	showhide("ddns_status_tr", 1);
 
         change_ddns_setting(document.form.ddns_server_x.value);
 
@@ -243,6 +248,7 @@ function ddns_load_body(){
 	inputCtrl(document.form.ddns_refresh_x, 0);
         showhide("wildcard_field",0);
 	showhide("ddns_ipcheck_tr", 0);
+	showhide("ddns_status_tr", 0);
     }
 
 	if(letsencrypt_support){
@@ -258,7 +264,7 @@ function ddns_load_body(){
 		var ddnsHint = getDDNSState(ddns_return_code, ddns_hostname_x_t, ddns_old_name);
 
 		if(ddnsHint != "")
-			alert(ddnsHint);
+			document.getElementById('ddns_status').innerHTML = '<span style="color:#FFCC00;">' + ddnsHint + '</span>';
 		if(ddns_return_code.indexOf('200')!=-1 || ddns_return_code.indexOf('220')!=-1 || ddns_return_code == 'register,230'){
 			showhide("wan_ip_hide2", 0);
 			if(ddns_server_x == "WWW.ASUS.COM"){
@@ -661,16 +667,25 @@ function save_cert_key(){
 				<div class="formfontdesc" id="wan_ip_hide2" style="color:#FFCC00; display:none;">The wireless router currently uses a private WAN IP address.<p>This router may be in the multiple-NAT environment.  While using an External check might allow DDNS to reflect the correct IP address, this might still interfere with remote access services.</div>
 				<div class="formfontdesc" id="wan_ip_hide3" style="color:#FFCC00; display:none;"><#LANHostConfig_x_DDNSEnable_sectiondesc3#></div>
 				<div class="formfontdesc" id="lb_note" style="color:#FFCC00; display:none;"><#lb_note_ddns#></div>
-				<div class="formfontdesc" id="ddns_state" style="color:#FFCC00; display:none;"></div>
 				<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
-				<input type="hidden" name="wl_gmode_protection_x" value="<% nvram_get("wl_gmode_protection_x"); %>">
+	                        <thead>
+	                        <tr>
+	                                <td colspan="2">DDNS Service</td>
+	                        </tr>
+	                        </thead>
 			<tr>
 				<th><#LANHostConfig_x_DDNSEnable_itemname#></th>
 				<td>
 				<input type="radio" value="1" name="ddns_enable_x" onClick="change_cert_method();show_cert_details();return change_common_radio(this, 'LANHostConfig', 'ddns_enable_x', '1')" <% nvram_match("ddns_enable_x", "1", "checked"); %>><#checkbox_Yes#>
 				<input type="radio" value="0" name="ddns_enable_x" onClick="return change_common_radio(this, 'LANHostConfig', 'ddns_enable_x', '0')" <% nvram_match("ddns_enable_x", "0", "checked"); %>><#checkbox_No#>
 				</td>
-			</tr>		
+			</tr>
+			<tr id="ddns_status_tr">
+				<th>DDNS status</th>
+				<td id="ddns_status">
+					Ok
+				</td>
+			</tr>
 			<tr>
 				<th id="ddns_wan_unit_th"><#wan_interface#></th>
 				<td id="ddns_wan_unit_td">
@@ -716,7 +731,7 @@ function save_cert_key(){
 				</td>
 			</tr>
 			<tr id="ddns_hostname_tr">
-				<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(5,13);"><#LANHostConfig_x_DDNSHostNames_itemname#></a></th>
+				<th id="ddns_hostname_th"><a class="hintstyle" href="javascript:void(0);" onClick="openHint(5,13);"><#LANHostConfig_x_DDNSHostNames_itemname#></a></th>
 				<td>
 					<div id="ddnsname_input" style="display:none;">
 						<input type="text" maxlength="63" class="input_25_table" name="ddns_hostname_x" id="ddns_hostname_x" value="<% nvram_get("ddns_hostname_x"); %>" onKeyPress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off">
@@ -738,7 +753,7 @@ function save_cert_key(){
 				<td><input type="text" maxlength="32" class="input_25_table" name="ddns_username_x" value="<% nvram_get("ddns_username_x"); %>" onKeyPress="return validator.isString(this, event)" autocomplete="off" autocorrect="off" autocapitalize="off"></td>
 			</tr>
 			<tr>
-				<th><#LANHostConfig_x_DDNSPassword_itemname#></th>
+				<th id="ddns_password_th"><#LANHostConfig_x_DDNSPassword_itemname#></th>
 				<td><input type="password" maxlength="64" class="input_25_table" name="ddns_passwd_x" value="<% nvram_get("ddns_passwd_x"); %>" autocomplete="new-password" autocorrect="off" autocapitalize="off"></td>
 			</tr>
 			<tr id="wildcard_field">
@@ -773,6 +788,14 @@ function save_cert_key(){
 					<input type="hidden" maxlength="15" class="button_gen" size="12" name="" value="<% nvram_get("DDNSStatus"); %>">
 				  	<input type="submit" maxlength="15" class="button_gen" onclick="showLoading();return onSubmitApply('ddnsclient');" size="12" name="LANHostConfig_x_DDNSStatus_button" value="<#LANHostConfig_x_DDNSStatus_buttonname#>" /></td>
 			</tr>
+		</table>
+
+		<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+		<thead>
+		<tr>
+			<td colspan="2">Webui SSL Certificate</td>
+		</tr>
+		</thead>
 			<tr id="https_cert" style="display:none;">
 				<th>HTTPS/SSL Certificate</th> <!--untranslated-->
 				<td>
@@ -817,7 +840,7 @@ function save_cert_key(){
 						<div style="display:table-cell;">Issued to :</div> <!--untranslated-->
 						<div id="issueTo" style="display:table-cell; padding-left:10px;"></div>
 					</div>
-					<div style="display:table-row;white-space: nowrap;">
+					<div style="display:table-row;">
 						<div style="display:table-cell;">SAN :</div>
 						<div id="SAN" style="display:table-cell; padding-left:10px;"></div>
 					</div>
