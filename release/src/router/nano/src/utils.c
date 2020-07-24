@@ -1,8 +1,8 @@
 /**************************************************************************
  *   utils.c  --  This file is part of GNU nano.                          *
  *                                                                        *
- *   Copyright (C) 1999-2011, 2013-2019 Free Software Foundation, Inc.    *
- *   Copyright (C) 2016-2017 Benno Schulenberg                            *
+ *   Copyright (C) 1999-2011, 2013-2020 Free Software Foundation, Inc.    *
+ *   Copyright (C) 2016, 2017, 2019 Benno Schulenberg                     *
  *                                                                        *
  *   GNU nano is free software: you can redistribute it and/or modify     *
  *   it under the terms of the GNU General Public License as published    *
@@ -49,7 +49,7 @@ void get_homedir(void)
 		/* Only set homedir if some home directory could be determined,
 		 * otherwise keep homedir NULL. */
 		if (homenv != NULL && *homenv != '\0')
-			homedir = mallocstrcpy(NULL, homenv);
+			homedir = copy_of(homenv);
 	}
 }
 
@@ -149,7 +149,7 @@ bool parse_line_column(const char *str, ssize_t *line, ssize_t *column)
 	if (comma == str)
 		return retval;
 
-	firstpart = mallocstrcpy(NULL, str);
+	firstpart = copy_of(str);
 	firstpart[comma - str] = '\0';
 
 	retval = parse_num(firstpart, line) && retval;
@@ -159,30 +159,24 @@ bool parse_line_column(const char *str, ssize_t *line, ssize_t *column)
 	return retval;
 }
 
-/* Null a string at a certain index and align it. */
-void null_at(char **data, size_t index)
+/* In the given string, recode each embedded NUL as a newline. */
+void unsunder(char *string, size_t length)
 {
-	*data = charealloc(*data, index + 1);
-	(*data)[index] = '\0';
-}
-
-/* For non-null-terminated lines.  A line, by definition, shouldn't
- * normally have newlines in it, so encode its nulls as newlines. */
-void unsunder(char *str, size_t true_len)
-{
-	for (; true_len > 0; true_len--, str++) {
-		if (*str == '\0')
-			*str = '\n';
+	while (length > 0) {
+		if (*string == '\0')
+			*string = '\n';
+		length--;
+		string++;
 	}
 }
 
-/* For non-null-terminated lines.  A line, by definition, shouldn't
- * normally have newlines in it, so decode its newlines as nulls. */
-void sunder(char *str)
+/* In the given string, recode each embedded newline as a NUL. */
+void sunder(char *string)
 {
-	for (; *str != '\0'; str++) {
-		if (*str == '\n')
-			*str = '\0';
+	while (*string != '\0') {
+		if (*string == '\n')
+			*string = '\0';
+		string++;
 	}
 }
 
@@ -209,14 +203,14 @@ bool is_separate_word(size_t position, size_t length, const char *buf)
 	size_t word_end = position + length;
 
 	/* Get the characters before and after the word, if any. */
-	parse_mbchar(buf + move_mbleft(buf, position), before, NULL);
-	parse_mbchar(buf + word_end, after, NULL);
+	collect_char(buf + step_left(buf, position), before);
+	collect_char(buf + word_end, after);
 
 	/* If the word starts at the beginning of the line OR the character before
 	 * the word isn't a letter, and if the word ends at the end of the line OR
 	 * the character after the word isn't a letter, we have a whole word. */
-	return ((position == 0 || !is_alpha_mbchar(before)) &&
-				(buf[word_end] == '\0' || !is_alpha_mbchar(after)));
+	return ((position == 0 || !is_alpha_char(before)) &&
+				(buf[word_end] == '\0' || !is_alpha_char(after)));
 }
 #endif /* ENABLE_SPELLER */
 
@@ -253,7 +247,7 @@ const char *strstrwrapper(const char *haystack, const char *needle,
 				/* If this is the last possible match, don't try to advance. */
 				if (last_find == ceiling)
 					break;
-				next_rung = move_mbright(haystack, last_find);
+				next_rung = step_right(haystack, last_find);
 				regmatches[0].rm_so = next_rung;
 				regmatches[0].rm_eo = far_end;
 				if (regexec(&search_regexp, haystack, 1, regmatches,
@@ -294,17 +288,6 @@ const char *strstrwrapper(const char *haystack, const char *needle,
 		return mbstrcasestr(start, needle);
 }
 
-/* This is a wrapper for the perror() function.  The wrapper temporarily
- * leaves curses mode, calls perror() (which writes to stderr), and then
- * reenters curses mode, updating the screen in the process.  Note that
- * nperror() causes the window to flicker once. */
-void nperror(const char *s)
-{
-	endwin();
-	perror(s);
-	doupdate();
-}
-
 /* This is a wrapper for the malloc() function that properly handles
  * things when we run out of memory. */
 void *nmalloc(size_t howmuch)
@@ -329,28 +312,34 @@ void *nrealloc(void *ptr, size_t howmuch)
 	return r;
 }
 
-/* Allocate and copy the first n characters of the given src string, after
- * freeing the destination.  Usage: "dest = mallocstrncpy(dest, src, n);". */
-char *mallocstrncpy(char *dest, const char *src, size_t n)
+/* Return an appropriately reallocated dest string holding a copy of src.
+ * Usage: "dest = mallocstrcpy(dest, src);". */
+char *mallocstrcpy(char *dest, const char *src)
 {
-	if (src == NULL)
-		src = "";
+	size_t count = strlen(src) + 1;
 
-#ifndef NANO_TINY
-	if (src == dest)
-		fprintf(stderr, "\r*** Copying a string to itself -- please report a bug ***");
-#endif
-	dest = charealloc(dest, n);
-	strncpy(dest, src, n);
+	dest = charealloc(dest, count);
+	strncpy(dest, src, count);
 
 	return dest;
 }
 
-/* Free the dest string and return a malloc'ed copy of src.  Should be used as:
- * "dest = mallocstrcpy(dest, src);". */
-char *mallocstrcpy(char *dest, const char *src)
+/* Return an allocated copy of the first count characters
+ * of the given string, and NUL-terminate the copy. */
+char *measured_copy(const char *string, size_t count)
 {
-	return mallocstrncpy(dest, src, (src == NULL) ? 1 : strlen(src) + 1);
+	char *thecopy = charalloc(count + 1);
+
+	strncpy(thecopy, string, count);
+	thecopy[count] = '\0';
+
+	return thecopy;
+}
+
+/* Return an allocated copy of the given string. */
+char *copy_of(const char *string)
+{
+	return measured_copy(string, strlen(string));
 }
 
 /* Free the string at dest and return the string at src. */
@@ -379,7 +368,7 @@ size_t get_page_start(size_t column)
  * column position of the cursor. */
 size_t xplustabs(void)
 {
-	return strnlenpt(openfile->current->data, openfile->current_x);
+	return wideness(openfile->current->data, openfile->current_x);
 }
 
 /* Return the index in text of the character that (when displayed) will
@@ -392,7 +381,7 @@ size_t actual_x(const char *text, size_t column)
 		/* The current accumulated span, in columns. */
 
 	while (*text != '\0') {
-		int charlen = parse_mbchar(text, NULL, &width);
+		int charlen = advance_over(text, &width);
 
 		if (width > column)
 			break;
@@ -405,16 +394,15 @@ size_t actual_x(const char *text, size_t column)
 
 /* A strnlen() with tabs and multicolumn characters factored in:
  * how many columns wide are the first maxlen bytes of text? */
-size_t strnlenpt(const char *text, size_t maxlen)
+size_t wideness(const char *text, size_t maxlen)
 {
 	size_t width = 0;
-		/* The screen display width to text[maxlen]. */
 
 	if (maxlen == 0)
 		return 0;
 
 	while (*text != '\0') {
-		size_t charlen = parse_mbchar(text, NULL, &width);
+		size_t charlen = advance_over(text, &width);
 
 		if (maxlen <= charlen)
 			break;
@@ -427,12 +415,12 @@ size_t strnlenpt(const char *text, size_t maxlen)
 }
 
 /* Return the number of columns that the given text occupies. */
-size_t strlenpt(const char *text)
+size_t breadth(const char *text)
 {
 	size_t span = 0;
 
 	while (*text != '\0')
-		text += parse_mbchar(text, NULL, &span);
+		text += advance_over(text, &span);
 
 	return span;
 }
@@ -441,7 +429,7 @@ size_t strlenpt(const char *text)
 void new_magicline(void)
 {
 	openfile->filebot->next = make_new_node(openfile->filebot);
-	openfile->filebot->next->data = mallocstrcpy(NULL, "");
+	openfile->filebot->next->data = copy_of("");
 	openfile->filebot = openfile->filebot->next;
 	openfile->totsize++;
 }
@@ -454,7 +442,7 @@ void remove_magicline(void)
 	if (openfile->filebot->data[0] == '\0' &&
 				openfile->filebot != openfile->filetop) {
 		openfile->filebot = openfile->filebot->prev;
-		free_lines(openfile->filebot->next);
+		delete_node(openfile->filebot->next);
 		openfile->filebot->next = NULL;
 		openfile->totsize--;
 	}
@@ -462,15 +450,21 @@ void remove_magicline(void)
 #endif
 
 #ifndef NANO_TINY
-/* Set (top, top_x) and (bot, bot_x) to the start and end "coordinates" of
- * the marked region.  If right_side_up isn't NULL, set it to TRUE when the
- * mark is at the top of the marked region, and to FALSE otherwise. */
-void mark_order(const linestruct **top, size_t *top_x,
-		const linestruct **bot, size_t *bot_x, bool *right_side_up)
+/* Return TRUE when the mark is before or at the cursor, and FALSE otherwise. */
+bool mark_is_before_cursor(void)
 {
-	if ((openfile->current->lineno == openfile->mark->lineno &&
-				openfile->current_x > openfile->mark_x) ||
-				openfile->current->lineno > openfile->mark->lineno) {
+	return (openfile->mark->lineno < openfile->current->lineno ||
+						(openfile->mark == openfile->current &&
+						openfile->mark_x <= openfile->current_x));
+}
+
+/* Return in (top, top_x) and (bot, bot_x) the start and end "coordinates"
+ * of the marked region.  If right_side_up isn't NULL, set it to TRUE when
+ * the mark is at the top of the marked region, and to FALSE otherwise. */
+void get_region(const linestruct **top, size_t *top_x,
+				const linestruct **bot, size_t *bot_x, bool *right_side_up)
+{
+	if (mark_is_before_cursor()) {
 		*top = openfile->mark;
 		*top_x = openfile->mark_x;
 		*bot = openfile->current;
@@ -498,7 +492,7 @@ void get_range(const linestruct **top, const linestruct **bot)
 	} else {
 		size_t top_x, bot_x;
 
-		mark_order(top, &top_x, bot, &bot_x, NULL);
+		get_region(top, &top_x, bot, &bot_x, NULL);
 
 		if (bot_x == 0 && *bot != *top && !also_the_last)
 			*bot = (*bot)->prev;
@@ -507,24 +501,19 @@ void get_range(const linestruct **top, const linestruct **bot)
 	}
 }
 
-/* Given a line number, return a pointer to the corresponding struct. */
-linestruct *fsfromline(ssize_t lineno)
+/* Return a pointer to the line that has the given line number. */
+linestruct *line_from_number(ssize_t number)
 {
-	linestruct *f = openfile->current;
+	linestruct *line = openfile->current;
 
-	if (lineno <= openfile->current->lineno)
-		while (f->lineno != lineno && f->prev != NULL)
-			f = f->prev;
+	if (line->lineno > number)
+		while (line->lineno != number)
+			line = line->prev;
 	else
-		while (f->lineno != lineno && f->next != NULL)
-			f = f->next;
+		while (line->lineno != number)
+			line = line->next;
 
-	if (f->lineno != lineno) {
-		statusline(ALERT, "Gone undo line -- please report a bug");
-		return NULL;
-	}
-
-	return f;
+	return line;
 }
 #endif /* !NANO_TINY */
 

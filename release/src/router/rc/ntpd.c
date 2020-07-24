@@ -81,9 +81,14 @@ void stop_ntpd(void)
 
 int ntpd_synced_main(int argc, char *argv[])
 {
+#if 0
+	if (argc == 2 && !strcmp(argv[1], "unsync"))
+		logmessage("ntpd", "Unable to reach ntp server so far, keep trying");
+#endif
+
 	if (!nvram_match("ntp_ready", "1") && (argc == 2 && !strcmp(argv[1], "step"))) {
 		nvram_set("ntp_ready", "1");
-		logmessage("ntp", "Initial clock set");
+		logmessage("ntpd", "Initial clock set");
 /* Code from ntpclient */
 #if !defined(RPAC56) && !defined(MAPAC1300) && !defined(MAPAC2200) && !defined(VZWAC1300)
 		if(nvram_contains_word("rc_support", "defpsk"))
@@ -113,6 +118,13 @@ int ntpd_synced_main(int argc, char *argv[])
 #ifdef RTCONFIG_DISK_MONITOR
 		notify_rc("restart_diskmon");
 #endif
+
+		stop_ddns();
+		start_ddns();
+#ifdef RTCONFIG_OPENVPN
+		start_ovpn_eas();
+#endif
+
 	}
 
 	return 0;

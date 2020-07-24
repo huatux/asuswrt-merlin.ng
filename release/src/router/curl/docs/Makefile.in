@@ -375,7 +375,7 @@ STRIP = @STRIP@
 SUPPORT_FEATURES = @SUPPORT_FEATURES@
 SUPPORT_PROTOCOLS = @SUPPORT_PROTOCOLS@
 USE_ARES = @USE_ARES@
-USE_CYASSL = @USE_CYASSL@
+USE_BEARSSL = @USE_BEARSSL@
 USE_GNUTLS = @USE_GNUTLS@
 USE_GNUTLS_NETTLE = @USE_GNUTLS_NETTLE@
 USE_LIBRTMP = @USE_LIBRTMP@
@@ -384,13 +384,18 @@ USE_LIBSSH2 = @USE_LIBSSH2@
 USE_MBEDTLS = @USE_MBEDTLS@
 USE_MESALINK = @USE_MESALINK@
 USE_NGHTTP2 = @USE_NGHTTP2@
+USE_NGHTTP3 = @USE_NGHTTP3@
+USE_NGTCP2 = @USE_NGTCP2@
+USE_NGTCP2_CRYPTO_OPENSSL = @USE_NGTCP2_CRYPTO_OPENSSL@
 USE_NSS = @USE_NSS@
 USE_OPENLDAP = @USE_OPENLDAP@
-USE_POLARSSL = @USE_POLARSSL@
+USE_QUICHE = @USE_QUICHE@
 USE_SCHANNEL = @USE_SCHANNEL@
 USE_SECTRANSP = @USE_SECTRANSP@
 USE_UNIX_SOCKETS = @USE_UNIX_SOCKETS@
 USE_WINDOWS_SSPI = @USE_WINDOWS_SSPI@
+USE_WOLFSSH = @USE_WOLFSSH@
+USE_WOLFSSL = @USE_WOLFSSL@
 VERSION = @VERSION@
 VERSIONNUM = @VERSIONNUM@
 ZLIB_LIBS = @ZLIB_LIBS@
@@ -471,6 +476,7 @@ EXTRA_DIST = \
  $(noinst_man_MANS)                             \
  ALTSVC.md                                      \
  BINDINGS.md                                    \
+ BUG-BOUNTY.md                                  \
  BUGS                                           \
  CHECKSRC.md                                    \
  CIPHERS.md                                     \
@@ -478,7 +484,10 @@ EXTRA_DIST = \
  CODE_OF_CONDUCT.md                             \
  CODE_STYLE.md                                  \
  CONTRIBUTE.md                                  \
+ CURL-DISABLE.md                                \
  DEPRECATE.md                                   \
+ ESNI.md                                        \
+ EXPERIMENTAL.md                                \
  FAQ                                            \
  FEATURES                                       \
  GOVERNANCE.md                                  \
@@ -486,6 +495,7 @@ EXTRA_DIST = \
  HISTORY.md                                     \
  HTTP-COOKIES.md                                \
  HTTP2.md                                       \
+ HTTP3.md                                       \
  INSTALL                                        \
  INSTALL.cmake                                  \
  INSTALL.md                                     \
@@ -493,6 +503,7 @@ EXTRA_DIST = \
  KNOWN_BUGS                                     \
  LICENSE-MIXING.md                              \
  MAIL-ETIQUETTE                                 \
+ PARALLEL-TRANSFERS.md                          \
  README.cmake                                   \
  README.md                                      \
  README.netware                                 \

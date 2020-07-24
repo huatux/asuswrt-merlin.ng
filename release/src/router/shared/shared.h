@@ -1692,6 +1692,9 @@ extern int mdio_phy_speed(char *ifname);
 #endif
 
 /* misc.c */
+#if !defined(HND_ROUTER)
+extern void ipt_account(FILE *fp, char *interface);
+#endif
 extern char *get_productid(void);
 extern void logmessage_normal(char *logheader, char *fmt, ...);
 extern char *get_logfile_path(void);
@@ -1817,6 +1820,8 @@ extern int get_bonding_status();
 #endif
 extern int isValidMacAddress(const char* mac);
 extern int isValidEnableOption(const char* option, int range);
+extern int is_valid_hostname(const char *name);
+extern int is_valid_domainname(const char *name);
 
 /* scripts.c */
 extern void run_custom_script(char *name, int timeout, char *arg1, char *arg2);

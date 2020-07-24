@@ -263,6 +263,15 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 
 			if (mount_info) free(mount_info);
 
+		} else if(strcmp(type,"jffs.free") == 0) {
+			struct statvfs fiData;
+
+			if (statvfs("/jffs",&fiData) == 0 ) {
+				sprintf(result,"%d",(fiData.f_bfree * fiData.f_frsize / MBYTES));
+			} else {
+				strcpy(result,"-1");
+			}
+
 		} else if(strncmp(type,"temperature",11) == 0) {
 			unsigned int temperature;
 			int radio;
@@ -562,9 +571,13 @@ unsigned int get_phy_temperature(int radio)
 	strcpy(buf, "phy_tempsense");
 
 	if (radio == 2) {
-		interface = nvram_get("wl0_ifname");
+		interface = nvram_safe_get("wl0_ifname");
 	} else if (radio == 5) {
-		interface = nvram_get("wl1_ifname");
+		interface = nvram_safe_get("wl1_ifname");
+#if defined(RTAC3200) || defined(RTAC5300) || defined(GTAC5300)
+	} else if (radio == 52) {
+		interface = nvram_safe_get("wl2_ifname");
+#endif
 	} else {
 		return 0;
 	}
@@ -621,7 +634,7 @@ unsigned int get_wifi_clients(int unit, int querytype)
 
 #ifdef RTCONFIG_QTN
 		if (unit == 1) {
-			if ((nvram_match("wl1_unit", "0")) || (!rpc_qtn_ready()))
+			if ((nvram_match("wl1_radio", "0")) || (!rpc_qtn_ready()))
 				count = -1;
 			else if ((querytype == SI_WL_QUERY_ASSOC) &&
 				 (qcsapi_wifi_get_count_associations(name, &association_count) >= 0))

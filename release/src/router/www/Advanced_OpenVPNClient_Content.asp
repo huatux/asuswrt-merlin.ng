@@ -42,7 +42,7 @@
 	font-size:14px;
 	z-index:200;
 	position:relative;
-	background-color:balck:
+	background-color:black;
 }
 .QISform_wireless{
 	width:600px;
@@ -226,7 +226,7 @@ function initial()
 	}
 
 	showclientlist();
-	showLANIPList();
+	showDropdownClientList('setClientIP', 'name>ip', 'all', 'ClientList_Block_PC', 'pull_arrow', 'online');
 
 	// Client list
 	free_options(document.form.vpn_client_unit);
@@ -371,6 +371,7 @@ function update_visibility(){
 
 	showhide("client_bridge_warn_text", (bridge == 0));
 	showhide("client_nat", ((iface == "tun") || (bridge == 0)));
+
 	showhide("client_nat_warn_text", (((nat == 0) || (auth == "secret" && iface == "tun"))));
 
 	showhide("client_local_1", (iface == "tun" && auth == "secret"));
@@ -405,7 +406,7 @@ function update_rgw_options(){
 
 	free_options(document.form.vpn_client_rgw);
 	add_option(document.form.vpn_client_rgw, "No","0",(currentpolicy == 0));
-	add_option(document.form.vpn_client_rgw, "All","1",(currentpolicy == 1));
+	add_option(document.form.vpn_client_rgw, "Yes","1",(currentpolicy == 1));
 	if (iface == "tun") {
 		add_option(document.form.vpn_client_rgw, "Policy Rules","2",(currentpolicy == 2));
 		add_option(document.form.vpn_client_rgw, "Policy Rules (strict)","3",(currentpolicy == 3));
@@ -537,10 +538,17 @@ function validForm(){
 		return false;
 	}
 
+	if (getRadioValue(document.form.vpn_client_userauth) &&
+	    (document.form.vpn_client_username.value == "" || document.form.vpn_client_username.value == "")) {
+		alert("You must provide a username and a password.")
+		document.form.vpn_client_username.focus();
+		return false;
+	}
+
 	if (!validator.safeName(document.form.vpn_client_desc) ||
 	    !validator.numberRange(document.form.vpn_client_verb, 0, 6) ||
-	    !validator.numberRange(document.form.vpn_client_reneg, -1, 2147483647) ||
-	    !validator.numberRange(document.form.vpn_client_connretry, -1, 999) ||
+	    !validator.numberRange(document.form.vpn_client_reneg, -1, 32767) ||
+	    !validator.numberRange(document.form.vpn_client_connretry, 0, 999) ||
 	    !validator.numberRange(document.form.vpn_client_port, 1, 65535))
 		return false;
 
@@ -582,7 +590,9 @@ function applyRule(manual_switch){
 	for(i=0; i<rule_num; i++){
 		tmp_value += "<";
 		for(j=0; j<item_num-1; j++){
-			tmp_value += document.getElementById('clientlist_table').rows[i].cells[j].innerHTML;
+			var field = document.getElementById('clientlist_table').rows[i].cells[j].innerHTML;
+			if (field == "0.0.0.0") field = "";
+			tmp_value += field;
 			if(j != item_num-2)
 				tmp_value += ">";
 		}
@@ -731,6 +741,8 @@ function showclientlist(){
 			code +='<tr id="row'+i+'">';
 			var clientlist_col = clientlist_row[i].split('&#62');
 				for(var j = 0; j < clientlist_col.length; j++){
+					if ((j == 1 || j == 2) && clientlist_col[j] == "0.0.0.0")
+						clientlist_col[j] = "";
 					code +='<td width="' + width[j] +'">'+ clientlist_col[j] +'</td>';
 				}
 				if (j < 4) {
@@ -765,12 +777,6 @@ function addRow_Group(upper){
 
 	if (!validator.safeName(document.form.clientlist_deviceName))
 		return false;
-
-	if(document.form.clientlist_ipAddr.value=="")
-		document.form.clientlist_ipAddr.value="0.0.0.0";
-
-	if(document.form.clientlist_dstipAddr.value=="")
-		document.form.clientlist_dstipAddr.value="0.0.0.0";
 
 	if (!validator.ipv4cidr(document.form.clientlist_ipAddr)) {
 		document.form.clientlist_ipAddr.focus();
@@ -825,61 +831,36 @@ function del_Row(r){
 		showclientlist();
 }
 
-function showLANIPList(){
-	if(clientList.length == 0){
-		setTimeout(function() {
-			genClientList();
-			showLANIPList();
-		}, 500);
-		return false;
-	}
+function hideClients_Block(evt){
+	if(typeof(evt) != "undefined"){
+		if(!evt.srcElement)
+			evt.srcElement = evt.target; // for Firefox
 
-	var htmlCode = "";
-	for(var i=0; i<clientList.length;i++){
-		var clientObj = clientList[clientList[i]];
-
-		if(clientObj.ip != "offline"){
-			if(clientObj.name.length > 20) clientObj.name = clientObj.name.substring(0, 16) + "..";
-
-			htmlCode += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP(\'';
-			htmlCode += clientObj.name;
-			htmlCode += '\', \'';
-			htmlCode += clientObj.ip;
-			htmlCode += '\');"><strong>';
-			htmlCode += clientObj.name;
-			htmlCode += '</strong> ('+clientObj.ip+')</div></a><!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';
+		if(evt.srcElement.id == "pull_arrow" || evt.srcElement.id == "ClientList_Block"){
+			return;
 		}
 	}
 
-	document.getElementById("ClientList_Block_PC").innerHTML = htmlCode;
-}
-
-function setClientIP(_name, _ipaddr){
-	document.form.clientlist_deviceName.value = _name;
-	document.form.clientlist_ipAddr.value = _ipaddr;
-	hideClients_Block();
-	over_var = 0;
-}
-
-var over_var = 0;
-var isMenuopen = 0;
-function hideClients_Block(){
 	document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
 	document.getElementById('ClientList_Block_PC').style.display='none';
-	isMenuopen = 0;
 }
 
 function pullLANIPList(obj){
+	var element = document.getElementById('ClientList_Block_PC');
+	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
 	if(isMenuopen == 0){
 		obj.src = "/images/arrow-top.gif"
-		document.getElementById("ClientList_Block_PC").style.display = 'block';
-		document.form.clientlist_deviceName.focus();
-		isMenuopen = 1;
+		element.style.display = 'block';
 	}
 	else
 		hideClients_Block();
 }
 
+function setClientIP(name, ipaddr){
+	document.form.clientlist_ipAddr.value = ipaddr;
+	document.form.clientlist_deviceName.value = name;
+	hideClients_Block();
+}
 
 function getConnStatus() {
 	$.ajax({
@@ -1204,7 +1185,7 @@ function refreshVPNIP() {
 						</td>
 					</tr>
 					<tr>
-							<th><#vpn_openvpnc_importovpn#></th>
+						<th><#vpn_openvpnc_importovpn#></th>
 						<td>
 							<input id="ovpnfile" type="file" name="file" class="input" style="color:#FFCC00;*color:#000;">
 							<input id="" class="button_gen" onclick="ImportOvpn();" type="button" value="<#CTL_upload#>" />
@@ -1268,6 +1249,13 @@ function refreshVPNIP() {
 							<input type="radio" name="vpn_client_nat" class="input" value="1" onclick="update_visibility();" <% nvram_match_x("", "vpn_client_nat", "1", "checked"); %>><#checkbox_Yes#>
 							<input type="radio" name="vpn_client_nat" class="input" value="0" onclick="update_visibility();" <% nvram_match_x("", "vpn_client_nat", "0", "checked"); %>><#checkbox_No#>
 							<span id="client_nat_warn_text">Routes must be configured manually.</span>
+						</td>
+					</tr>
+					<tr>
+						<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,30);">Inbound Firewall</a></th>
+						<td>
+							<input type="radio" name="vpn_client_fw" class="input" value="1" <% nvram_match_x("", "vpn_client_fw", "1", "checked"); %>>Block
+							<input type="radio" name="vpn_client_fw" class="input" value="0" <% nvram_match_x("", "vpn_client_fw", "0", "checked"); %>>Allow
 						</td>
 					</tr>
 					<tr id="client_local_1">
@@ -1421,7 +1409,7 @@ function refreshVPNIP() {
 						</td>
 					</tr>
 					<tr>
-						<th>Connection Retry attempts<br><i>(-1 for infinite)</th>
+						<th>Connection Retry attempts<br><i>(0 for infinite)</th>
 						<td>
 							<input type="text" maxlength="3" class="input_6_table" name="vpn_client_connretry" value="<% nvram_get("vpn_client_connretry"); %>">
 						</td>
@@ -1435,7 +1423,7 @@ function refreshVPNIP() {
 						</td>
 					</tr>
 					<tr>
-						<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,19);">Redirect Internet traffic</a></th>
+						<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(50,19);">Force Internet traffic through tunnel</a></th>
 						<td colspan="2">
 							<select name="vpn_client_rgw" class="input_option" onChange="update_visibility();">
 							</select>
@@ -1469,9 +1457,9 @@ function refreshVPNIP() {
 							<input type="text" class="input_15_table" maxlength="15" name="clientlist_deviceName" onClick="hideClients_Block();" onKeyPress="return validator.isString(this, event);">
 						</td>
 						<td width="29%">
-							<input type="text" class="input_18_table" maxlength="18" name="clientlist_ipAddr" onKeyPress="return validator.isIPAddrPlusNetmask(this, event)" autocomplete="off" autocorrect="off" autocapitalize="off">
-							<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>" onmouseover="over_var=1;" onmouseout="over_var=0;">
-							<div id="ClientList_Block_PC" class="ClientList_Block_PC"></div>
+							<input type="text" class="input_18_table" maxlength="18" name="clientlist_ipAddr" onKeyPress="return validator.isIPAddrPlusNetmask(this, event)" onClick="hideClients_Block();" autocomplete="off" autocorrect="off" autocapitalize="off">
+							<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>">
+							<div id="ClientList_Block_PC" class="clientlist_dropdown"></div>
 						</td>
 						<td width="25%">
 							<input type="text" class="input_18_table" maxlength="18" name="clientlist_dstipAddr" onKeyPress="return validator.isIPAddrPlusNetmask(this, event)" autocomplete="off" autocorrect="off" autocapitalize="off">

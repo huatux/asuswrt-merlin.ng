@@ -4036,3 +4036,117 @@ int isValidEnableOption(const char *option, int range) {
 	else
 		return 0;
 }
+
+/*
+ * Validate a char is not valid for a host hame
+ * @name:	pointer to  a string.
+ */
+static int is_invalid_char_for_hostname(int c)
+{
+	int ret = 0;
+
+	if (c < 0x20)
+		ret = 1;
+#if 0
+	else if (c >= 0x21 && c <= 0x2c)	/* !"#$%&'()*+, */
+		ret = 1;
+#else	/* allow '+' */
+	else if (c >= 0x21 && c <= 0x2a)	/* !"#$%&'()* */
+		ret = 1;
+	else if (c == 0x2c)			/* , */
+		ret = 1;
+#endif
+	else if (c >= 0x2e && c <= 0x2f)	/* ./ */
+		ret = 1;
+	else if (c >= 0x3a && c <= 0x40)	/* :;<=>?@ */
+		ret = 1;
+#if 0
+	else if (c >= 0x5b && c <= 0x60)	/* [\]^_ */
+		ret = 1;
+#else	/* allow '_' */
+	else if (c >= 0x5b && c <= 0x5e)	/* [\]^ */
+		ret = 1;
+	else if (c == 0x60)			/* ` */
+		ret = 1;
+#endif
+	else if (c >= 0x7b)			/* {|}~ DEL */
+		ret = 1;
+#if 0
+	printf("%c (0x%02x) is %svalid for hostname\n", c, c, (ret == 0) ? "  " : "in");
+#endif
+	return ret;
+}
+
+/*
+ * Validate a string is valid host name
+ * @name:	pointer to  a string.
+ */
+int is_valid_hostname(const char *name)
+{
+	const char *p;
+	int c;
+
+	if (!name)
+		return 0;
+
+	for (p = name; (c = *p); p++) {
+		if (is_invalid_char_for_hostname(c))
+			return 0;
+	}
+
+	return p - name;
+}
+
+#if !defined(HND_ROUTER)
+void ipt_account(FILE *fp, char *interface) {
+	struct in_addr ipaddr, netmask, network;
+	char netaddrnetmask[] = "255.255.255.255/255.255.255.255 ";
+	int unit;
+
+	inet_aton(nvram_safe_get("lan_ipaddr"), &ipaddr);
+	inet_aton(nvram_safe_get("lan_netmask"), &netmask);
+
+	// bitwise AND of ip and netmask gives the network
+	network.s_addr = ipaddr.s_addr & netmask.s_addr;
+
+	sprintf(netaddrnetmask, "%s/%s", inet_ntoa(network), nvram_safe_get("lan_netmask"));
+
+	// If we are provided an interface (usually a VPN interface) then use it as WAN.
+	if (interface){
+		fprintf(fp, "iptables -A ipttolan -i %s -m account --aaddr %s --aname lan -j RETURN\n", interface, netaddrnetmask);
+		fprintf(fp, "iptables -A iptfromlan -o %s -m account --aaddr %s --aname lan -j RETURN\n", interface, netaddrnetmask);
+
+	} else {	// Create rules for every WAN interfaces available
+		fprintf(fp, "-I FORWARD -i br0 -j iptfromlan\n");
+		fprintf(fp, "-I FORWARD -o br0 -j ipttolan\n");
+		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
+			if ((get_dualwan_by_unit(unit) != WANS_DUALWAN_IF_NONE) && (strlen(get_wan_ifname(unit)))) {
+				fprintf(fp, "-A ipttolan -i %s -m account --aaddr %s --aname lan -j RETURN\n", get_wan_ifname(unit), netaddrnetmask);
+				fprintf(fp, "-A iptfromlan -o %s -m account --aaddr %s --aname lan -j RETURN\n", get_wan_ifname(unit), netaddrnetmask);
+			}
+		}
+	}
+}
+#endif
+
+/*
+ * Validate a string is valid domain name
+ * @name:	pointer to  a string.
+ */
+int is_valid_domainname(const char *name)
+{
+	const char *p;
+	int c;
+
+	if (!name)
+		return 0;
+
+	for (p = name; (c = *p); p++) {
+		if (((c | 0x20) < 'a' || (c | 0x20) > 'z') &&
+		    ((c < '0' || c > '9')) &&
+		    (c != '.' && c != '-' && c != '_'))
+			return 0;
+	}
+
+	return p - name;
+}

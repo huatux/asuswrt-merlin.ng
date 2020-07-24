@@ -1536,6 +1536,11 @@ void start_dnsmasq(void)
 		if (nvram_get_int("dhcpd_send_wpad")) {
 			fprintf(fp, "dhcp-option=lan,252,\"\\n\"\n");
 		}
+
+		/* NTP server */
+		if (nvram_get_int("ntpd_enable"))
+			fprintf(fp, "dhcp-option=lan,42,%s\n", "0.0.0.0");
+
 #if defined(RTCONFIG_TR069) && !defined(RTCONFIG_TR181)
 		if (ether_atoe(get_lan_hwaddr(), hwaddr)) {
 			snprintf(buffer, sizeof(buffer), "%02X%02X%02X", hwaddr[0], hwaddr[1], hwaddr[2]);
@@ -1651,6 +1656,12 @@ void start_dnsmasq(void)
 		value = nvram_safe_get("lan_domain");
 		if (*value)
 			fprintf(fp, "dhcp-option=lan,option6:24,%s\n", value);
+
+		/* SNTP & NTP server */
+		if (nvram_get_int("ntpd_enable")) {
+			fprintf(fp, "dhcp-option=lan,option6:31,%s\n", "[::]");
+			fprintf(fp, "dhcp-option=lan,option6:56,%s\n", "[::]");
+		}
 	}
 #endif
 
@@ -1720,8 +1731,7 @@ void start_dnsmasq(void)
 	} else
 #endif
 	if (nvram_get_int("dnssec_enable")) {
-		fprintf(fp, "trust-anchor=.,19036,8,2,49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5\n"
-		            "trust-anchor=.,20326,8,2,E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D\n"
+		fprintf(fp, "trust-anchor=.,20326,8,2,E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D\n"
 		            "dnssec\n");
 
 		/* If NTP isn't set yet, wait until rc's ntp signals us to start validating time */
@@ -1735,8 +1745,19 @@ void start_dnsmasq(void)
 	if (nvram_match("dns_norebind", "1"))
 		fprintf(fp, "stop-dns-rebind\n");
 
-	if (nvram_match("ntpd_enable", "1"))
-		fprintf(fp, "dhcp-option=option:ntp-server,%s\n", lan_ipaddr);
+	/* Instruct clients like Firefox to not auto-enable DoH */
+	n = nvram_get_int("dns_priv_override");
+	if ((n == 1) ||
+	    (n == 0 && (
+#ifdef RTCONFIG_DNSPRIVACY
+	       nvram_get_int("dnspriv_enable") ||
+#endif
+	       (nvram_get_int("dnsfilter_enable_x") && nvram_get_int("dnsfilter_mode")) )	// DNSFilter enabled in Global mode
+	    )
+	) {
+
+		fprintf(fp, "address=/use-application-dns.net/\n");
+	}
 
 	/* Protect against VU#598349 */
 	fprintf(fp,"dhcp-name-match=set:wpad-ignore,wpad\n"
@@ -1765,7 +1786,7 @@ void start_dnsmasq(void)
 
 	/* Update local resolving mode */
 	n = readlink("/etc/resolv.conf", buf, sizeof(buf));
-	if (nvram_get_int("dns_local")) {
+	if (nvram_get_int("dns_local_cache")) {
 		/* Use dnsmasq for local resolving if it did start,
 		 * fallback to wan dns otherwise */
 		path = (char *)dmresolv;
@@ -3184,7 +3205,7 @@ void write_static_leases(FILE *fp)
 {
 	FILE *fp2;
 	char *nv, *nvp, *b;
-	char *mac, *ip, *name;
+	char *mac, *ip;
 	char lan_if[IFNAMSIZ];
 	int vars;
 	in_addr_t ip1, lan_net, lan_mask;
@@ -3199,6 +3220,10 @@ void write_static_leases(FILE *fp)
 		char br_if[IFNAMSIZ];
 	} vlan_nets[VLAN_MAX_NUM], *v;
 #endif
+	char *nv2, *nvp2;
+	char *name2, *mac2;
+	char *entry, *hostnames;
+	int len, found;
 
 	if (!fp)
 		return;
@@ -3262,16 +3287,47 @@ void write_static_leases(FILE *fp)
 	}
 #endif
 
+#ifdef HND_ROUTER
+	hostnames = jffs_nvram_get("dhcp_hostnames");
+	if (hostnames) {
+		len = strlen(hostnames) + 1;
+		nv2 = nvp2 = malloc(len);
+	} else {
+		len = 0;
+		nv2 = NULL;
+	}
+#else
+	hostnames = nvram_safe_get("dhcp_hostnames");
+	len = strlen(hostnames) + 1;
+	nv2 = nvp2 = malloc(len);
+#endif
+
 	/* Parsing dhcp_staticlist nvram variable. */
 	while ((b = strsep(&nvp, "<")) != NULL) {
-		vars = vstrsep(b, ">", &mac, &ip, &name);
-		if ((vars != 2) && (vars != 3))
+		vars = vstrsep(b, ">", &mac, &ip);
+		if (vars != 2)
 			continue;
 		if (!strlen(mac) || !strlen(ip) || (ip1 = inet_network(ip)) == -1)
 			continue;
 
-		if ((vars == 3) && (strlen(name)) && (is_valid_hostname(name))) {
-			fprintf(fp2, "%s %s\n", ip, name);
+		/* Find hostname if we have one */
+		if ((len > 1) && (nv2)) {
+			strlcpy(nv2, hostnames, len);
+			nvp2 = nv2;
+			found = 0;
+
+			while ((entry = strsep(&nvp2, "<")) != NULL) {
+				if (vstrsep(entry, ">", &mac2, &name2) == 2) {
+					if (!strcasecmp(mac, mac2)) {
+						found = 1;
+						break;
+					}
+				}
+			}
+
+			if ((found) && (*name2) && (is_valid_hostname(name2))) {
+				fprintf(fp2, "%s %s\n", ip, name2);
+			}
 		}
 
 		if ((ip1 & lan_mask) == lan_net) {
@@ -3288,6 +3344,7 @@ void write_static_leases(FILE *fp)
 		}
 #endif
 	}
+	if (nv2) free(nv2);
 	free(nv);
 	fclose(fp2);
 }
@@ -3395,8 +3452,6 @@ start_ddns(void)
 		service = "default@dyndns.org";
 	else if (strcmp(server, "WWW.DYNDNS.ORG(STATIC)")==0)
 		service = "default@dyndns.org";
-	else if (strcmp(server, "WWW.TZO.COM")==0)
-		service = "default@tzo.com";
 	else if (strcmp(server, "WWW.ZONEEDIT.COM")==0)
 		service = "default@zoneedit.com";
 	else if (strcmp(server, "WWW.JUSTLINUX.COM")==0)
@@ -3427,6 +3482,7 @@ start_ddns(void)
 		service = "update@asus.com";
 		user = get_lan_hwaddr();
 		passwd = nvram_safe_get("secret_code");
+		asus_ddns = 1;
 	}
 	else if (strcmp(server, "DOMAINS.GOOGLE.COM") == 0)
 		service = "default@domains.google.com";
@@ -3503,6 +3559,12 @@ start_ddns(void)
 				fprintf(fp, "wildcard = true\n");
 
 			fprintf(fp, "}\n");
+			if (!nvram_get_int("ntp_ready"))
+				fprintf(fp, "broken-rtc = true\n");
+#if 1
+			if (asus_ddns == 1)
+				fprintf(fp, "secure-ssl = false\n");
+#endif
 
 			append_custom_config("inadyn.conf", fp);
 
@@ -3523,8 +3585,11 @@ start_ddns(void)
 
 			char *argv[] = { "/usr/sbin/inadyn",
 			                 "-e", "/sbin/ddns_updated",
-					"--exec-nochg", "/sbin/ddns_updated",
 			                 "-l", loglevel,
+#ifdef RTCONFIG_LETSENCRYPT
+			                 (asus_ddns == 1 ? "-1" : NULL),
+			                 (asus_ddns == 1 ? "--force" : NULL),
+#endif
 			                 NULL };
 
 			_eval(argv, NULL, 0, &pid);
@@ -3667,6 +3732,11 @@ asusddns_reg_domain(int reg)
 		fprintf(fp, "username = %s\n", get_lan_hwaddr());
 		fprintf(fp, "password = %s\n", nvram_safe_get("secret_code"));
 		fprintf(fp, "}\n");
+		if (!nvram_get_int("ntp_ready"))
+			fprintf(fp, "broken-rtc = true\n");
+#if 1
+		fprintf(fp, "secure-ssl = false\n");
+#endif
 		fclose(fp);
 
 		if((time_fp=fopen("/tmp/ddns.cache","w"))) {
@@ -3679,7 +3749,7 @@ asusddns_reg_domain(int reg)
 		else
 			loglevel = "notice";
 
-		char *argv[] = { "/usr/sbin/inadyn", "-1",
+		char *argv[] = { "/usr/sbin/inadyn", "-1", "--force",
 				"-e", "/sbin/ddns_updated",
 				"-l", loglevel,
 			NULL };
@@ -3743,6 +3813,11 @@ _dprintf("%s: do inadyn to unregister! unit = %d wan_ifname = %s nserver = %s ho
 		fprintf(fp, "username = %s\n", get_lan_hwaddr());
 		fprintf(fp, "password = %s\n", nvram_safe_get("secret_code"));
 		fprintf(fp, "}\n");
+		if (!nvram_get_int("ntp_ready"))
+			fprintf(fp, "broken-rtc = true\n");
+#if 1
+		fprintf(fp, "secure-ssl = false\n");
+#endif
 		fclose(fp);
 
 /*
@@ -3759,7 +3834,7 @@ _dprintf("%s: do inadyn to unregister! unit = %d wan_ifname = %s nserver = %s ho
 		else
 			loglevel = "notice";
 
-		char *argv[] = { "/usr/sbin/inadyn", "-1",
+		char *argv[] = { "/usr/sbin/inadyn", "-1", "--force",
 				"-e", "/sbin/ddns_updated",
 				"-l", loglevel,
 			NULL };
@@ -4723,6 +4798,25 @@ void start_upnp(void)
 		return;
 
 	unit = wan_primary_ifunit();
+#ifdef RTCONFIG_DUALWAN
+	if (get_dualwan_by_unit(unit) == WANS_DUALWAN_IF_NONE || !is_wan_connect(unit)) {
+		int i;
+		for (i = WAN_UNIT_FIRST; i < WAN_UNIT_MAX; i++) {
+			if (get_dualwan_by_unit(i) == WANS_DUALWAN_IF_NONE || !is_wan_connect(i))
+				continue;
+			snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+			if (nvram_match(strcat_r(prefix, "proto", tmp), "static")) {
+				snprintf(tmp, sizeof(tmp), i ? "link_wan%d" : "link_wan", i);
+				if (!nvram_get_int(tmp))
+					continue;
+			}
+			if (nvram_get_int(strcat_r(prefix, "upnp_enable", tmp))) {
+				unit = i;
+				break;
+			}
+		}
+	}
+#endif
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 
 	upnp_enable = nvram_get_int("upnp_enable");
@@ -10011,7 +10105,7 @@ again:
 		if(action & RC_SERVICE_START) {
 			int sw = 0, r;
 			char upgrade_file[64] = "/tmp/linux.trx";
-			char *webs_state_info = nvram_safe_get("webs_state_info");
+			char *webs_state_info = nvram_safe_get("webs_state_info_am");
 
 #ifdef RTCONFIG_SMALL_FW_UPDATE
 			snprintf(upgrade_file,sizeof(upgrade_file),"/tmp/mytmpfs/linux.trx");
@@ -13357,6 +13451,8 @@ _dprintf("test 2. turn off the USB power during %d seconds.\n", reset_seconds[re
 		fprintf(stderr,
 			"WARNING: rc notified of unrecognized event `%s'.\n",
 					script);
+		if (nvram_get_int("rc_debug"))
+			logmessage("rc", "received unrecognized event: %s", script);
 	}
 
 skip:

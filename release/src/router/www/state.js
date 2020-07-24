@@ -565,7 +565,7 @@ var cloudsync_support = isSupport("cloudsync");
 var nocloudsync_support = isSupport("nocloudsync");
 var aicloudipk_support = isSupport("aicloudipk");
 var yadns_hideqis = isSupport("yadns_hideqis");
-var yadns_support = yadns_hideqis || isSupport("yadns");
+var yadns_support = false;	//yadns_hideqis || isSupport("yadns");
 var dnspriv_support = isSupport("dnspriv");
 var manualstb_support = isSupport("manual_stb"); 
 var wps_multiband_support = isSupport("wps_multiband");
@@ -643,22 +643,15 @@ var wifiproxy_support = isSupport("wifiproxy");
 var lyra_hide_support = isSupport("lyra_hide");
 var port2_device = isSupport("port2_device");
 var hdspindown_support = isSupport("hdspindown");
-if ("<% nvram_get("amas_force"); %>" == "1") {
-	var amesh_support = uiSupport("amas");
-	var cfg_sync_support = uiSupport("cfg_sync");
-	var ameshRouter_support = uiSupport("amasRouter");
-	var ameshNode_support = uiSupport("amasNode");
-} else {
-	var amesh_support = false;
-	var cfg_sync_support = false;
-	var ameshRouter_support = false;
-	var ameshNode_support = false;
-}
+var amesh_support = uiSupport("amas");
+var ameshRouter_support = uiSupport("amasRouter");
+var ameshNode_support = uiSupport("amasNode");
 var ifttt_support = isSupport("ifttt");
 var alexa_support = isSupport("alexa");
 var hnd_support = isSupport("hnd");
 var tagged_based_vlan = isSupport("tagged_based_vlan");
 var vpn_fusion_support = isSupport("vpn_fusion");
+var cfg_sync_support = isSupport("cfg_sync");
 var meoVoda_support = isSupport("meoVoda");
 var movistarTriple_support = isSupport("movistarTriple");
 var utf8_ssid_support = isSupport("utf8_ssid");
@@ -896,7 +889,7 @@ function show_banner(L3){// L3 = The third Level of Menu
 	else{
 		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/asustitle.png" width="218" height="54" align="left">\n';
 		banner_code +='<div style="margin-top:13px;margin-left:-90px;*margin-top:0px;*margin-left:0px;" align="center"><span id="modelName_top" onclick="this.focus();" class="modelName_top"><#Web_Title2#></span></div>';
-		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://asuswrt.lostrealm.ca/" target="_blank"><img src="images/merlin-logo.png" style="border: 0;"></span></div>';
+		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://www.asuswrt-merlin.net/" target="_blank"><img src="images/merlin-logo.png" style="border: 0;"></span></div>';
 
 		// logout, reboot
 		banner_code +='<a href="javascript:logout();"><div style="margin-top:13px;margin-left:25px; *width:136px;" class="titlebtn" align="center"><span><#t1Logout#></span></div></a>\n';
@@ -1146,11 +1139,14 @@ function hide_traffic_warning(){
 }
 
 function get_helplink(){
+	return "https://www.asuswrt-merlin.net/";
+/*
 	var href_lang = get_supportsite_lang();
 	var model_name_supportsite = supportsite_model(support_site_modelid, hw_ver);  // @ /js/support_site.js
 
 	var getlink="https://www.asus.com"+href_lang+"Networking/" +model_name_supportsite+ "/HelpDesk_Download/";       
 	return getlink;
+*/
 }
 
 function Block_chars(obj, keywordArray){
@@ -2013,7 +2009,7 @@ function show_loading_obj(){
 	code +='<table cellpadding="5" cellspacing="0" id="loadingBlock" class="loadingBlock" align="center">\n';
 	code +='<tr>\n';
 	code +='<td width="20%" height="80" align="center"><img src="/images/loading.gif"></td>\n';
-	code +='<td><span id="proceeding_main_txt"><#Main_alert_proceeding_desc4#></span><span id="proceeding_txt" style="color:#FFFFCC;"></span></td>\n';
+	code +='<td><span id="proceeding_main_txt" style="color:#FFFFFF;"><#Main_alert_proceeding_desc4#></span> <span id="proceeding_txt" style="color:#FFFFFF;"></span></td>\n'
 	code +='</tr>\n';
 	code +='</table>\n';
 	code +='<!--[if lte IE 6.5]><iframe class="hackiframe"></iframe><![endif]-->\n';

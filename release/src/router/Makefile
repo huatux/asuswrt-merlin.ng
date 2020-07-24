@@ -1239,14 +1239,17 @@ obj-$(RTCONFIG_TRANSMISSION) += Transmission curl-7.21.7 libevent-2.0.21
 obj-$(RTCONFIG_NANO) += ncurses-6.0
 obj-$(RTCONFIG_NANO) += nano
 obj-$(RTCONFIG_OPENVPN) += ministun
-obj-$(RTCONFIG_DNSSEC) += nettle
+obj-$(RTCONFIG_DNSSEC) += $(if $(RTCONFIG_DNSSEC_OPENSSL),openssl-1.1,) $(if $(RTCONFIG_DNSSEC_NETTLE),nettle,)
 obj-$(RTCONFIG_SAMBA36X) += libiconv-1.14
 obj-$(RTCONFIG_TELENET) += lanauth
 obj-y += inadyn
 obj-y += libconfuse
+obj-y += wsdd2
+obj-$(RTCONFIG_BWDPI) += faketc
+
 ifeq ($(RTCONFIG_OPENSSL11),y)
-obj-$(RTCONFIG_OPENSSL11) += openssl-1.1.x
-OPENSSLDIR=openssl-1.1.x
+obj-$(RTCONFIG_OPENSSL11) += openssl-1.1
+OPENSSLDIR=openssl-1.1
 else
 OPENSSLDIR=openssl
 endif
@@ -2588,7 +2591,7 @@ rc: shared nvram$(BCMEX)$(EX7) libbcmcrypto libdisk $(if $(RTCONFIG_FBWIFI),fb_w
 # Dig into our collection of prebuilt objects based on model
 	@-rm -f rc/prebuild/*.o || true
 	@-cp -f rc/prebuild/$(BUILD_NAME)/* rc/prebuild/
-	@$(MAKE) -C rc
+	@$(MAKE) -C rc $(PARALLEL_BUILD)
 
 rc-install:
 	$(MAKE) -C rc INSTALLDIR=$(INSTALLDIR)/rc install
@@ -2749,19 +2752,21 @@ ifeq ($(RTCONFIG_DHDAP),y)
 endif
 endif
 
-
-dnsmasq:  $(if $(RTCONFIG_DNSSEC),nettle,)
+dnsmasq:  $(if $(RTCONFIG_DNSSEC_OPENSSL),openssl-1.1,) $(if $(RTCONFIG_DNSSEC_NETTLE),nettle,)
 	@$(SEP)
-	@$(MAKE) -C dnsmasq \
+	$(MAKE) -C dnsmasq \
 	COPTS="-DHAVE_BROKEN_RTC -DHAVE_LEASEFILE_EXPIRE -DNO_ID -DNO_AUTH -DNO_INOTIFY -DNO_DUMPFILE -DNO_GMP \
 		$(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6) \
 		$(if $(RTCONFIG_USB_EXTRAS)||$(RTCONFIG_TR069),,-DNO_SCRIPT) \
 		$(if $(RTCONFIG_USB_EXTRAS),,-DNO_TFTP) \
-		$(if $(RTCONFIG_DNSSEC),-I$(TOP)/nettle/include -I$(TOP)/gmp -DHAVE_DNSSEC -DHAVE_DNSSEC_STATIC,)" \
+		$(if $(RTCONFIG_DNSSEC_OPENSSL),-I$(TOP)/openssl-1.1/include -DHAVE_DNSSEC,) \
+		$(if $(RTCONFIG_DNSSEC_NETTLE),-I$(TOP)/nettle/include -I$(TOP)/gmp -DHAVE_DNSSEC -DHAVE_DNSSEC_STATIC -DNO_GOST,)" \
 	CFLAGS="-Os -ffunction-sections -fdata-sections $(EXTRACFLAGS)" \
 	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(EXTRALDFLAGS) \
-		$(if $(RTCONFIG_DNSSEC),-L$(TOP)/nettle/lib -L$(TOP)/gmp/.libs,)" \
-	$(if $(RTCONFIG_DNSSEC),PKG_CONFIG_PATH="$(TOP)/nettle/lib/pkgconfig",)
+		$(if $(RTCONFIG_DNSSEC_OPENSSL),-pthread -L$(TOP)/openssl-1.1,) \
+		$(if $(RTCONFIG_DNSSEC_NETTLE),-L$(TOP)/nettle/lib -L$(TOP)/gmp/.libs,)" \
+	$(if $(RTCONFIG_DNSSEC_OPENSSL),PKG_CONFIG_PATH="$(TOP)/openssl-1.1" CRYPTO=openssl,) \
+	$(if $(RTCONFIG_DNSSEC_NETTLE),PKG_CONFIG_PATH="$(TOP)/nettle/lib/pkgconfig",)
 
 dnsmasq-install:
 	install -D dnsmasq/src/dnsmasq $(INSTALLDIR)/dnsmasq/usr/sbin/dnsmasq
@@ -2787,32 +2792,44 @@ libyaml-clean:
 	[ ! -f libyaml/Makefile ] || $(MAKE) -C libyaml distclean
 	@rm -f libyaml/Makefile
 
-getdns/configure:
-	cd getdns && libtoolize -ci && autoreconf -fi
+getdns/build/Makefile:
+	@rm -rf getdns/build && mkdir -p getdns/build
+	cd getdns/build && \
+	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_SKIP_RPATH=TRUE \
+		-DCMAKE_C_FLAGS="-Os -DNDEBUG -ffunction-sections -fdata-sections $(EXTRACFLAGS)" \
+		-DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections $(EXTRALDFLAGS) $(if $(RTCONFIG_OPENSSL11),-lpthread,)" \
+		-DENABLE_STATIC=TRUE -DENABLE_SHARED=FALSE -DENABLE_GOST=FALSE \
+		-DBUILD_GETDNS_QUERY=FALSE \
+		-DBUILD_GETDNS_SERVER_MON=FALSE \
+		-DBUILD_STUBBY=TRUE -DENABLE_STUB_ONLY=TRUE \
+		-DBUILD_LIBEV=FALSE -DBUILD_LIBEVENT2=FALSE -DBUILD_LIBUV=FALSE \
+		-DBUILD_TESTING=FALSE \
+		-DOPENSSL_ROOT_DIR=$(TOP)/$(OPENSSLDIR) \
+		-DOPENSSL_INCLUDE_DIR=$(TOP)/$(OPENSSLDIR)/include \
+		-DOPENSSL_CRYPTO_LIBRARY=$(TOP)/$(OPENSSLDIR)/libcrypto.so \
+		-DOPENSSL_SSL_LIBRARY=$(TOP)/$(OPENSSLDIR)/libssl.so \
+		-DLIBYAML_DIR=$(TOP)/libyaml \
+		-DLIBYAML_INCLUDE_DIR=$(TOP)/libyaml/include \
+		-DLIBYAML_LIBRARY=$(TOP)/libyaml/src/.libs/libyaml.a \
+		-DCMAKE_DISABLE_FIND_PACKAGE_Libsystemd=TRUE \
+		-DUSE_LIBIDN2=FALSE \
+		-DSTRPTIME_WORKS_EXITCODE=0 \
+		-DSTRPTIME_WORKS_EXITCODE__TRYRUN_OUTPUT=0 \
+		..
 
-getdns-configure: getdns/configure
-	cd getdns && \
-	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --with-piddir=/var/run \
-		--enable-static --disable-shared --disable-gost \
-		--enable-stub-only --without-libidn --without-libidn2 \
-		--without-getdns_query --without-getdns_server_mon --with-stubby \
-		--with-ssl=$(TOP)/$(OPENSSLDIR) \
-		--with-libyaml=$(STAGEDIR)/usr \
-		CFLAGS="-Os -I$(TOP)/$(OPENSSLDIR)/include -I$(STAGEDIR)/usr/include -ffunction-sections -fdata-sections $(EXTRACFLAGS)" \
-		LDFLAGS="-L$(TOP)/$(OPENSSLDIR) -L$(STAGEDIR)/usr/lib -Wl,--gc-sections $(EXTRALDFLAGS)" \
-		LIBS="-lcrypto -lssl -lyaml"
-
-getdns: $(OPENSSLDIR) libyaml getdns/Makefile
-	$(MAKE) -C $@
+getdns: $(OPENSSLDIR) libyaml getdns/build/Makefile
+	$(MAKE) -C getdns/build
 
 getdns-install:
 	install -d $(INSTALLDIR)/getdns/usr/sbin
-	install -D getdns/src/stubby $(INSTALLDIR)/getdns/usr/sbin/stubby
+	install -D getdns/build/stubby/stubby $(INSTALLDIR)/getdns/usr/sbin/stubby
 	$(STRIP) $(INSTALLDIR)/getdns/usr/sbin/stubby
 
 getdns-clean:
-	[ ! -f getdns/Makefile ] || $(MAKE) -C getdns distclean
-	@rm -f getdns/Makefile
+	@rm -rf getdns/build
 
 iptables:
 	@$(SEP)
@@ -3992,6 +4009,9 @@ lldpd-0.9.8-install: lldpd-0.9.8
 	install -D lldpd-0.9.8/src/client/.libs/lldpcli $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpcli
 	install -D lldpd-0.9.8/src/daemon/lldpd $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpd
 	install -D lldpd-0.9.8/src/lib/.libs/liblldpctl.so.4.8.0 $(INSTALLDIR)/lldpd-0.9.8/usr/lib/liblldpctl.so.4.8.0
+	$(STRIP) $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpcli
+	$(STRIP) $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpd
+
 	cd $(INSTALLDIR)/lldpd-0.9.8/usr/lib && ln -sf liblldpctl.so.4.8.0 liblldpctl.so && ln -sf liblldpctl.so.4.8.0 liblldpctl.so.4
 
 lldpd-0.9.8-clean:
@@ -4094,12 +4114,17 @@ iproute2-4.3:
 
 iproute2-4.3-install:
 	install -D iproute2-4.3/iproute2-4.3.0/tc/tc $(INSTALLDIR)/iproute2-4.3/usr/sbin/tc
+	install -D iproute2-4.3/iproute2-4.3.0/tc/tc  $(INSTALL_DIR)/iproute2-4.3/usr/sbin/realtc
 	$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/tc
+	$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/realtc
 	install -D iproute2-4.3/iproute2-4.3.0/ip/ip $(INSTALLDIR)/iproute2-4.3/usr/sbin/ip
 	$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/ip
 
 iproute2-4.3-clean:
 	-@$(MAKE) -C iproute2-4.3 clean
+	-rm -f $(INSTALL_DIR)/usr/sbin/tc
+	-rm -f $(INSTALL_DIR)/usr/sbin/realtc
+	-rm -f $(INSTALL_DIR)/usr/sbin/ip
 	-rm -f iproute2-4.3/iproute2-4.3.0/Config
 
 ntpclient: nvram$(BCMEX)$(EX7) shared
@@ -4118,7 +4143,7 @@ dropbear/config.h: dropbear/config.h.in
 	cd dropbear && \
 		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
-		LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
+		LDFLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
 		LIBS="$(if $(RTCONFIG_PROTECTION_SERVER),-lptcsrv)" \
 		$(CONFIGURE) --disable-zlib --disable-pam \
 		--enable-openpty --enable-syslog --enable-shadow --enable-bundled-libtom \
@@ -4130,7 +4155,7 @@ dropbear/config.h: dropbear/config.h.in
 
 dropbear: dropbear/config.h
 	@$(SEP)
-	@$(MAKE) -C $@ PROGRAMS="dropbear dbclient dropbearkey scp" MULTI=1 $(PARALLEL_BUILD)
+	@$(MAKE) -C $@ PROGRAMS="dropbear dbclient dropbearkey scp" MULTI=1 IGNORE_SPEED=1 $(PARALLEL_BUILD)
 
 dropbear-install:
 	install -D dropbear/dropbearmulti $(INSTALLDIR)/dropbear/usr/bin/dropbearmulti
@@ -4287,12 +4312,12 @@ endif
 
 flac/stamp-h1: libogg
 	cd flac && \
-	CFLAGS="-Os $(EXTRACFLAGS) -fPIC -ffunction-sections -fdata-sections" \
-	CPPFLAGS="-I$(TOP)/libogg/include" \
+	CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections" \
 	LDFLAGS="-L$(TOP)/libogg/src/.libs -fPIC -ffunction-sections -fdata-sections -Wl,--gc-sections" \
 	$(CONFIGURE) --enable-shared --enable-static --prefix='' --disable-rpath \
 		--disable-doxygen-docs --disable-xmms-plugin --disable-cpplibs \
-		--without-libiconv-prefix --disable-altivec --disable-3dnow --disable-sse
+		--without-libiconv-prefix --disable-altivec --disable-3dnow --disable-sse \
+		--with-ogg-libraries=$(TOP)/libogg/src/.libs --with-ogg-includes=$(TOP)/libogg/include
 	touch $@
 
 flac: flac/stamp-h1 libogg
@@ -4457,7 +4482,7 @@ minidlna-configure:
 		$(if $(RTAC68U,y),-L$(TOP)/nvram${BCMEX} -lnvram -L$(TOP)/shared -lshared) \
 	ac_cv_header_linux_netlink_h=no \
 	$(CONFIGURE)  --with-db-path=/tmp/minidlna --with-log-path=/tmp/minidlna \
-		--with-os-name=Asuswrt --with-os-version=382.xx --with-os-url="https://asuswrt.lostrealm.ca/" \
+		--with-os-name=Asuswrt --with-os-version=384.xx --with-os-url="https://www.asuswrt-merlin.net/" \
 		--enable-tivo
 
 minidlna-clean:
@@ -4946,7 +4971,7 @@ openvpn/Makefile:
 		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections $(if $(RTCONFIG_BCMARM),-I$(SRCBASE)/shared/bcmwifi/include)" \
 		LDFLAGS="$(EXTRALDFLAGS) -L$(TOP)/nvram$(BCMEX)${EX7} ${EXTRA_NV_LDFLAGS} -lnvram -L$(TOP)/shared -lshared $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client -lqcsapi_client) -L$(TOP)/zlib -lz -lpthread -ldl -L$(TOP)/lzo/src/.libs -L$(TOP)/openpam/lib/libpam/.libs -ffunction-sections -fdata-sections -Wl,--gc-sections" \
 		CPPFLAGS="-I$(TOP)/lzo/include -I$(TOP)/$(OPENSSLDIR)/include  -I$(TOP)/openpam/include -I$(TOP)/shared -I$(SRCBASE)/include" \
-		IPROUTE="$(if $(RTCONFIG_HND_ROUTER),/bin/ip,/usr/sbin/ip)" IFCONFIG="/sbin/ifconfig" ROUTE="/sbin/route" \
+		IPROUTE="/usr/sbin/ip" IFCONFIG="/sbin/ifconfig" ROUTE="/sbin/route" \
 		$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
 			--disable-debug --enable-management --enable-plugin-auth-pam --enable-iproute2 \
 			ac_cv_lib_resolv_gethostbyname=no \
@@ -5301,47 +5326,47 @@ usbclient-clean:
 	rm -rf usbclient/stamp-h1
 
 ##strongswan/IPSEC
-strongswan/stamp-h1: $(OPENSSLDIR)
-	cd strongswan && autoreconf -i -f && \
-	$(CONFIGURE) \
-	--prefix=/usr/ --sysconfdir=/etc/ --localstatedir=/var/ \
-	--bindir=/usr/sbin --libdir=/usr/lib \
-	--libexecdir=/usr/lib --with-ipsecdir=/usr/lib/ipsec --with-user=admin \
-	--disable-gmp --enable-openssl --enable-agent --enable-eap-peap \
-	--enable-eap-md5 --enable-eap-mschapv2 --enable-eap-identity \
-	--with-strongswan-conf=/etc/strongswan.conf --enable-md4 --enable-acert \
-	--enable-cmd --enable-eap-tls --enable-libipsec \
-	CFLAGS="-O3 -I$(TOP)/$(OPENSSLDIR)/include $(if $(RTCONFIG_HND_ROUTER),-DHND_ROUTER,)" \
-	LDFLAGS="-L$(TOP)/$(OPENSSLDIR) -L$(STAGEDIR)/usr/lib" \
-	LIBS="-lssl -lcrypto -lpthread -ldl -lm"
-	touch $@
+strongswan/configure:
+	cd strongswan && autoreconf -i
 
-strongswan: strongswan/stamp-h1
-	$(MAKE) $(PARALLEL_BUILD) -C strongswan
+strongswan/Makefile: strongswan/configure
+	cd strongswan && \
+	$(CONFIGURE) \
+	--prefix=/usr/ --bindir=/usr/sbin --sysconfdir=/etc/ --localstatedir=/var/ --libexecdir=/usr/lib \
+	--enable-silent-rules \
+	--disable-gmp --enable-openssl \
+	--enable-acert --enable-agent \
+	--enable-md4 \
+	--enable-eap-identity --enable-eap-md5 --enable-eap-mschapv2 --enable-eap-tls --enable-eap-peap \
+	--enable-cmd --enable-libipsec \
+	--enable-shared --disable-static \
+	--with-ipsecdir=/usr/lib/ipsec \
+	--with-strongswan-conf=/etc/strongswan.conf \
+	--with-user=admin \
+	CFLAGS="-O2 -Wall -Wno-format -Wno-format-security -Wno-pointer-sign \
+		-I$(TOP)/$(OPENSSLDIR)/include -I$(STAGEDIR)/usr/include $(EXTRACFLAGS) \
+		$(if $(RTCONFIG_HND_ROUTER),-DHND_ROUTER,)" \
+	LDFLAGS="-L$(TOP)/$(OPENSSLDIR) -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS)" \
+	LIBS="-lssl -lcrypto -lpthread -ldl -lm"
+
+strongswan: $(OPENSSLDIR) strongswan/Makefile
+	@$(SEP)
+	$(MAKE) -j 8 -C strongswan
 
 strongswan-install: strongswan
 	@$(SEP)
-	@$(MAKE) -C strongswan install DESTDIR=$(INSTALLDIR)/strongswan/ ; chmod 755 $(INSTALLDIR)/strongswan/usr/lib
-	@rm -rf $(INSTALLDIR)/strongswan/usr/etc
-	@rm -f $(INSTALLDIR)/strongswan/usr/lib/ipsec/*.la
-	@rm -f $(INSTALLDIR)/strongswan/usr/lib/ipsec/plugins/*.la
-	@rm -f $(INSTALLDIR)/strongswan/usr/lib/ipsec/*.a
-	@rm -f $(INSTALLDIR)/strongswan/usr/lib/ipsec/plugins/*.a
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/*.so
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/starter
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/stroke
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/scepclient
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/charon
-	$(STRIP) $(INSTALLDIR)/strongswan/usr/lib/ipsec/plugins/*.so
-
+	$(MAKE) -C strongswan install-strip DESTDIR=$(INSTALLDIR)/strongswan/ ; chmod 755 $(INSTALLDIR)/strongswan/usr/lib
+	rm -rf $(INSTALLDIR)/strongswan/usr/etc
+	rm -rf $(INSTALLDIR)/strongswan/usr/lib/ipsec/*.a
+	rm -rf $(INSTALLDIR)/strongswan/usr/lib/ipsec/*.la
+	rm -rf $(INSTALLDIR)/strongswan/usr/lib/ipsec/plugins/*.a
+	rm -rf $(INSTALLDIR)/strongswan/usr/lib/ipsec/plugins/*.la
+	rm -rf $(INSTALLDIR)/strongswan/usr/share/man
 	mv $(INSTALLDIR)/strongswan/etc $(INSTALLDIR)/strongswan/usr/
 
 strongswan-clean:
-	-@$(MAKE) -C strongswan clean
-	@rm -f strongswan/stamp-h1
-	@rm -rf $(INSTALLDIR)/strongswan/
-	@rm -rf $(TARGETDIR)/usr/sbin/strongswan/*
-	@rm -rf $(TARGETDIR)/usr/lib/strongswan/*
+	[ ! -f strongswan/Makefile ] || $(MAKE) -C strongswan distclean
+	@rm -f strongswan/Makefile
 
 sw-hw-auth:
 	cd sw-hw-auth && \
@@ -5442,9 +5467,9 @@ curl-7.21.7/Makefile: curl/configure
 
 curl-7.21.7-install: curl-7.21.7
 	@$(SEP)
-	install -D curl-7.21.7/lib/.libs/libcurl.so.4.5.0 $(INSTALLDIR)/curl-7.21.7/usr/lib/libcurl.so.4.5.0
-	$(STRIP) $(INSTALLDIR)/curl-7.21.7/usr/lib/libcurl.so.4.5.0
-	cd $(INSTALLDIR)/curl-7.21.7/usr/lib && ln -sf libcurl.so.4.5.0 libcurl.so && ln -sf libcurl.so.4.5.0 libcurl.so.4
+	install -D curl-7.21.7/lib/.libs/libcurl.so.4.6.0 $(INSTALLDIR)/curl-7.21.7/usr/lib/libcurl.so.4.6.0
+	$(STRIP) $(INSTALLDIR)/curl-7.21.7/usr/lib/libcurl.so.4.6.0
+	cd $(INSTALLDIR)/curl-7.21.7/usr/lib && ln -sf libcurl.so.4.6.0 libcurl.so && ln -sf libcurl.so.4.6.0 libcurl.so.4
 #ifeq ($(RTCONFIG_SPEEDTEST),y)
 	# for speedtest
 	install -D curl-7.21.7/src/.libs/curl $(INSTALLDIR)/curl-7.21.7/usr/sbin/curl
@@ -6331,7 +6356,7 @@ wget/Makefile: wget/Makefile.in
 		LDFLAGS="$(EXTRALDFLAGS) -Wl,--gc-sections -pthread"
 
 wget: $(OPENSSLDIR) zlib wget/Makefile
-	$(MAKE) -C $@
+	$(MAKE) -C $@ $(PARALLEL_BUILD)
 
 wget-clean:
 	[ ! -f wget/Makefile ] || $(MAKE) -C wget distclean
@@ -6917,43 +6942,39 @@ libical-2.0.0-install:
 		ln -sf libicalvcal.so.2.0.0 libicalvcal.so.2
 
 libconfuse/Makefile:
-	cd libconfuse && $(CONFIGURE) \
-		CFLAGS="$(EXTRACFLAGS) -Os -I$(STAGEDIR)/usr/include -ffunction-sections -fdata-sections -fPIC" \
-		LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections" \
-		--prefix=/usr --disable-shared \
-		--without-libiconv-prefix --without-libintl-prefix --disable-examples --disable-nls
+	cd libconfuse && $(CONFIGURE) --prefix=/usr --disable-shared \
+		--disable-examples --disable-nls \
+		--without-libiconv-prefix --without-libintl-prefix \
+		CFLAGS="-Wall -Os -ffunction-sections -fdata-sections -fPIC $(EXTRACFLAGS)" \
+		LDFLAGS="-Wl,--gc-sections $(LDFLAGS)"
 
-libconfuse: libiconv-1.14 libconfuse/Makefile
-	@$(SEP)
-	$(MAKE) -C $@
+libconfuse: libconfuse/Makefile
+	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 libconfuse-install:
-	@$(SEP)
-# Do nothing
-#	install -D libconfuse/src/.libs/libconfuse.so.1.1.0 $(INSTALLDIR)/libconfuse/usr/lib/libconfuse.so.1.1.0
-#	cd $(INSTALLDIR)/libconfuse/usr/lib && \
-#		ln -sf libconfuse.so.1.1.0 libconfuse.so.1 &&\
-#		ln -sf libconfuse.so.1.1.0 libconfuse.so
-#	$(STRIP) $(INSTALLDIR)/libconfuse/usr/lib/*.so.*
-
+	@true
 
 libconfuse-clean:
-	@$(SEP)
 	[ ! -f libconfuse/Makefile ] || $(MAKE) -C libconfuse distclean
 	@rm -f libconfuse/Makefile
 
-inadyn/Makefile:
-	cd inadyn && $(CONFIGURE) \
-		confuse_CFLAGS="-I$(TOP)/libconfuse/src" \
-		confuse_LIBS="-L$(TOP)/libconfuse/src/.libs -lconfuse" \
-		OpenSSL_CFLAGS="-I$(TOP)/$(OPENSSLDIR)/include" \
-		OpenSSL_LIBS="-L$(TOP)/$(OPENSSLDIR) -lcrypto" \
-		CFLAGS="$(EXTRACFLAGS) -Os -I$(TOP)/shared -I$(SRCBASE)/include -I$(SRCBASE)/shared/bcmwifi/include -DTYPEDEF_FLOAT_T -I$(STAGEDIR)/usr/include -ffunction-sections -fdata-sections -fPIC -DASUSWRT $(if $(RTCONFIG_LETSENCRYPT),-DASUS_LE,)" \
-		LDFLAGS="$(LDFLAGS) $(EXTRA_NV_LDFLAGS) -L$(TOP)/nvram$(BCMEX)$(EX7) -lnvram -L$(TOP)/shared -lshared $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client -lqcsapi_client) -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread" \
-		--prefix="" --enable-openssl
+inadyn/configure:
+	cd inadyn && ./autogen.sh
 
-inadyn: shared nvram${BCMEX}$(EX7) libconfuse inadyn/Makefile
-	@$(SEP)
+inadyn/Makefile: inadyn/configure
+	cd inadyn && $(CONFIGURE) --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+		--enable-openssl \
+		confuse_CFLAGS="-I$(STAGEDIR)/usr/include" \
+		confuse_LIBS="-L$(STAGEDIR)/usr/lib -lconfuse" \
+		OpenSSL_CFLAGS="-I$(TOP)/$(OPENSSLDIR)/include" \
+		OpenSSL_LIBS="-L$(TOP)/$(OPENSSLDIR) -lcrypto -lssl $(if $(RTCONFIG_OPENSSL11),-lpthread,)" \
+		CFLAGS="-Wall -Os -I$(TOP)/shared -I$(SRCBASE)/include -DASUSWRT $(if $(RTCONFIG_LETSENCRYPT),-DASUSWRT_LE,) \
+			-I$(STAGEDIR)/usr/include  -ffunction-sections -fdata-sections $(EXTRACFLAGS)" \
+		LDFLAGS="-L$(TOP)/nvram$(BCMEX)$(EX7) -L$(TOP)/shared $(EXTRA_NV_LDFLAGS) \
+			 -L$(STAGEDIR)/usr/lib -Wl,--gc-sections $(LDFLAGS) $(EXTRALDFLAGS)" \
+		LIBS="-lnvram -lshared $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client -lqcsapi_client) -ldl"
+
+inadyn: shared nvram$(BCMEX)$(EX7) libconfuse inadyn/Makefile
 	$(MAKE) -C $@
 
 inadyn-install:
@@ -6961,7 +6982,6 @@ inadyn-install:
 	$(STRIP) $(INSTALLDIR)/inadyn/usr/sbin/inadyn
 
 inadyn-clean:
-	@$(SEP)
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
@@ -7182,41 +7202,53 @@ portmap-install:
 	install -D portmap/portmap $(INSTALLDIR)/portmap/usr/sbin/portmap
 	$(STRIP) $(INSTALLDIR)/portmap/usr/sbin/portmap
 
-openssl-1.1.x/Makefile:
-	cd openssl-1.1.x && \
+openssl-1.1/Makefile:
+	cd openssl-1.1 && \
 	./Configure $(HOSTCONFIG) --prefix=/usr --openssldir=/etc/ssl --cross-compile-prefix=' ' \
 	-O2 -ffunction-sections -fdata-sections -Wl,--gc-sections \
 	shared $(OPENSSL_CIPHERS) no-err no-async --api=1.0.0 \
 	no-aria no-sm2 no-sm3 no-sm4 \
-	$(if $(filter y,$(HND_ROUTER)),,-DOPENSSL_PREFER_CHACHA_OVER_GCM)
-	-@$(MAKE) -C openssl-1.1.x depend clean
+	$(if $(filter 4908,$(BCM_CHIP)),,-DOPENSSL_PREFER_CHACHA_OVER_GCM)
+	-@$(MAKE) -C openssl-1.1 depend clean
 	@touch $@
 
-openssl-1.1.x: openssl-1.1.x/Makefile
-	$(MAKE) -C openssl-1.1.x $(PARALLEL_BUILD)
+openssl-1.1: openssl-1.1/Makefile
+	$(MAKE) -C openssl-1.1 $(PARALLEL_BUILD)
 
-openssl-1.1.x-clean:
-	[ ! -f openssl-1.1.x/Makefile ] || $(MAKE) -C openssl-1.1.x clean
-	@rm -f openssl-1.1.x/Makefile
+openssl-1.1-clean:
+	[ ! -f openssl-1.1/Makefile ] || $(MAKE) -C openssl-1.1 clean
+	@rm -f openssl-1.1/Makefile
 
-openssl-1.1.x-install:
+openssl-1.1-install:
 	$(SEP)
-	if [ -f openssl-1.1.x/Makefile ] ; then \
-		install -D openssl-1.1.x/libcrypto.so.1.1 $(INSTALLDIR)/openssl-1.1.x/usr/lib/libcrypto.so.1.1 ; \
-		install -D openssl-1.1.x/libssl.so.1.1 $(INSTALLDIR)/openssl-1.1.x/usr/lib/libssl.so.1.1 ; \
-		$(STRIP) $(INSTALLDIR)/openssl-1.1.x/usr/lib/libssl.so.1.1 ; \
-		$(STRIP) $(INSTALLDIR)/openssl-1.1.x/usr/lib/libcrypto.so.1.1 ; \
-		install -D openssl-1.1.x/apps/openssl $(INSTALLDIR)$(INSTALLSUBDIR)/usr/sbin/openssl11 ; \
+	if [ -f openssl-1.1/Makefile ] ; then \
+		install -D openssl-1.1/libcrypto.so.1.1 $(INSTALLDIR)/openssl-1.1/usr/lib/libcrypto.so.1.1 ; \
+		install -D openssl-1.1/libssl.so.1.1 $(INSTALLDIR)/openssl-1.1/usr/lib/libssl.so.1.1 ; \
+		$(STRIP) $(INSTALLDIR)/openssl-1.1/usr/lib/libssl.so.1.1 ; \
+		$(STRIP) $(INSTALLDIR)/openssl-1.1/usr/lib/libcrypto.so.1.1 ; \
+		install -D openssl-1.1/apps/openssl $(INSTALLDIR)$(INSTALLSUBDIR)/usr/sbin/openssl11 ; \
 		$(STRIP) $(INSTALLDIR)$(INSTALLSUBDIR)/usr/sbin/openssl11 ; \
 		chmod 0500 $(INSTALLDIR)$(INSTALLSUBDIR)/usr/sbin/openssl11 ; \
 	fi
 
-openssl-1.1.x-stage:
-	 $(MAKE) -C openssl-1.1.x install_sw INSTALL_PREFIX=$(STAGEDIR)
+openssl-1.1-stage:
+	 $(MAKE) -C openssl-1.1 install_sw INSTALL_PREFIX=$(STAGEDIR)
 
 libvpn: shared nvram$(BCMEX)$(EX7)
 	@$(SEP)
 	$(MAKE) -C libvpn
+
+wsdd2:
+	@$(SEP)
+	$(MAKE) CFLAGS+="-DASUSWRT -Os" -C $@
+
+wsdd2-install:
+	install -D wsdd2/wsdd2 $(INSTALLDIR)/wsdd2/usr/sbin/wsdd2
+	$(STRIP) $(INSTALLDIR)/wsdd2/usr/sbin/wsdd2
+
+wsdd2-clean:
+	$(MAKE) -C wsdd2 clean
+
 # End merlin components
 
 readline-6.2/Makefile: readline-6.2/configure

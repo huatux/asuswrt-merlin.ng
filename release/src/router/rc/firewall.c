@@ -1204,7 +1204,9 @@ void redirect_nat_setting(void)
 	fprintf(fp, "*nat\n"
 		":PREROUTING ACCEPT [0:0]\n"
 		":POSTROUTING ACCEPT [0:0]\n"
-		":OUTPUT ACCEPT [0:0]\n");
+		":OUTPUT ACCEPT [0:0]\n"
+		":PUPNP - [0:0]\n"
+		":VUPNP - [0:0]\n");
 #ifdef RTCONFIG_WIFI_SON
 	if(sw_mode() == SW_MODE_AP && nvram_match("cfg_master", "1")){
 		fprintf(fp, "-A PREROUTING -p udp --dport 53 -i %s -j DNAT --to-destination %s:53\n",BR_GUEST, APMODE_BRGUEST_IP);
@@ -1238,7 +1240,9 @@ void repeater_nat_setting(){
 	fprintf(fp, "*nat\n"
 		":PREROUTING ACCEPT [0:0]\n"
 		":POSTROUTING ACCEPT [0:0]\n"
-		":OUTPUT ACCEPT [0:0]\n");
+		":OUTPUT ACCEPT [0:0]\n"
+		":PUPNP - [0:0]\n"
+		":VUPNP - [0:0]\n");
 
 	fprintf(fp, "-A PREROUTING -d 10.0.0.1 -p tcp --dport 80 -j DNAT --to-destination %s:%d\n", lan_ip, lan_port);
 	fprintf(fp, "-A PREROUTING -d %s -p tcp --dport 80 -j DNAT --to-destination %s:%d\n", nvram_default_get("lan_ipaddr"), lan_ip, lan_port);
@@ -1692,9 +1696,7 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 
 #ifdef RTCONFIG_NTPD
 	if (nvram_get_int("ntpd_enable") && nvram_get_int("ntpd_server_redir")) {
-		fprintf(fp, "-A PREROUTING -i %s -p udp -m udp --dport 123 -j REDIRECT --to-port 123\n"
-			    "-A PREROUTING -i %s -p tcp -m tcp --dport 123 -j REDIRECT --to-port 123\n",
-			    lan_if, lan_if);
+		fprintf(fp, "-A PREROUTING -i %s -p udp -m udp --dport 123 -j REDIRECT --to-port 123\n", lan_if);
 	}
 #endif
 
@@ -2077,9 +2079,7 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 
 #ifdef RTCONFIG_NTPD
 	if (nvram_get_int("ntpd_enable") && nvram_get_int("ntpd_server_redir")) {
-		fprintf(fp, "-A PREROUTING -i %s -p udp -m udp --dport 123 -j REDIRECT --to-port 123\n"
-		            "-A PREROUTING -i %s -p tcp -m tcp --dport 123 -j REDIRECT --to-port 123\n",
-		            lan_if, lan_if);
+		fprintf(fp, "-A PREROUTING -i %s -p udp -m udp --dport 123 -j REDIRECT --to-port 123\n", lan_if);
 	}
 #endif
 
@@ -3720,15 +3720,14 @@ TRACE_PT("writing Parental Control\n");
 					snprintf(srciprule, sizeof(srciprule), "-s %s", srcip);
 				else
 					srciprule[0] = '\0';
-				if (dstip[0] != '\0')
-					snprintf(dstiprule, sizeof(dstiprule), "-d %s", dstip);
-				else
+				if (strlen(dstip) > 2) {
+					if (dstip[0] == ':' && dstip[1] == ':' && dstip[2] != '\0' && dstip[2] != '/') // dstip is EUI64 address
+						snprintf(dstiprule, sizeof(dstiprule), "-d %s/::ffff:ffff:ffff:ffff", dstip);
+					else
+						snprintf(dstiprule, sizeof(dstiprule), "-d %s", dstip);
+				} else {
 					dstiprule[0] = '\0';
-				if (dstip[0] == ':' && dstip[1] == ':') // dstip is EUI64 address
-					snprintf(dstiprule, sizeof(dstiprule), "-d %s/::ffff:ffff:ffff:ffff", dstip);
-				else
-					snprintf(dstiprule, sizeof(dstiprule), "-d %s", dstip);
-
+				}
 				portp = portv = strdup(port);
 				while (portv && (dstports = strsep(&portp, ",")) != NULL) {
 					if (strcmp(proto, "TCP") == 0 || strcmp(proto, "BOTH") == 0)
@@ -4525,7 +4524,8 @@ TRACE_PT("writing Parental Control\n");
 #endif
 
 #ifdef RTCONFIG_FTP
-		if (nvram_get_int("enable_ftp")) {
+		if ((nvram_get_int("enable_ftp")) && (nvram_get_int("ftp_wanac")))
+		{
 			fprintf(fp, "-A INPUT -p tcp -m tcp --dport 21 -j %s\n", logaccept);
 			int local_ftpport = nvram_get_int("vts_ftpport");
 			if (nvram_match("vts_enable_x", "1") && local_ftpport != 0 && local_ftpport != 21 && ruleHasFTPport())
@@ -4816,25 +4816,33 @@ TRACE_PT("writing Parental Control\n");
 			nvp = nv = strdup(nvram_safe_get("ipv6_fw_rulelist"));
 			while (nv && (b = strsep(&nvp, "<")) != NULL) {
 				char *portv, *portp, *port, *desc, *dstports;
-				char srciprule[64];
+				char srciprule[64], dstiprule[64];
 				if ((vstrsep(b, ">", &desc, &srcip, &dstip, &port, &proto) != 5))
 					continue;
 				if (srcip[0] != '\0')
 					snprintf(srciprule, sizeof(srciprule), "-s %s", srcip);
 				else
 					srciprule[0] = '\0';
+				if (strlen(dstip) > 2) {
+					if (dstip[0] == ':' && dstip[1] == ':' && dstip[2] != '\0' && dstip[2] != '/') // dstip is EUI64 address
+						snprintf(dstiprule, sizeof(dstiprule), "-d %s/::ffff:ffff:ffff:ffff", dstip);
+					else
+						snprintf(dstiprule, sizeof(dstiprule), "-d %s", dstip);
+				} else {
+					dstiprule[0] = '\0';
+				}
 				portp = portv = strdup(port);
 				while (portv && (dstports = strsep(&portp, ",")) != NULL) {
 					if (strcmp(proto, "TCP") == 0 || strcmp(proto, "BOTH") == 0)
-						fprintf(fp_ipv6, "-A FORWARD -m state --state NEW -p tcp -m tcp %s -d %s --dport %s -j %s\n",
-							srciprule, dstip, dstports, logaccept);
+						fprintf(fp_ipv6, "-A FORWARD -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n",
+							srciprule, dstiprule, dstports, logaccept);
 					if (strcmp(proto, "UDP") == 0 || strcmp(proto, "BOTH") == 0)
-						fprintf(fp_ipv6, "-A FORWARD -m state --state NEW -p udp -m udp %s -d %s --dport %s -j %s\n",
-							srciprule, dstip, dstports, logaccept);
+						fprintf(fp_ipv6, "-A FORWARD -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n",
+							srciprule, dstiprule, dstports, logaccept);
 					// Handle raw protocol in port field, no val1:val2 allowed
 					if (strcmp(proto, "OTHER") == 0) {
 						protono = strsep(&dstports, ":");
-						fprintf(fp_ipv6, "-A FORWARD -p %s %s -d %s -j %s\n", protono, srciprule, dstip, logaccept);
+						fprintf(fp_ipv6, "-A FORWARD -p %s %s %s -j %s\n", protono, srciprule, dstiprule, logaccept);
 					}
 				}
 				free(portv);
@@ -5638,7 +5646,7 @@ mangle_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 
 /* Workaround for neighbour solicitation flood from Comcast */
 #ifdef RTCONFIG_IPV6
-	if (nvram_get_int("ipv6_neighsol_drop")) {
+	if (nvram_get_int("ipv6_ns_drop")) {
 		for(unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; ++unit){
 			eval("ip6tables", "-t", "mangle", "-A", "PREROUTING", "-p", "icmpv6", "--icmpv6-type", "neighbor-solicitation",
 			     "-i", get_wan_ifname(unit), "-d", "ff02::1:ff00:0/104", "-j", "DROP");
@@ -6278,7 +6286,7 @@ int start_firewall(int wanunit, int lanunit)
 #endif
 
 #ifdef RTCONFIG_OPENVPN
-	run_ovpn_fw_script();
+	run_ovpn_fw_scripts();
 #endif
 
 	if (!nvram_get_int("ttl_inc_enable") && !nvram_get_int("ttl_spoof_enable")) {
@@ -6329,37 +6337,3 @@ void enable_ip_forward(void)
 #endif
 #endif
 }
-
-#if !defined(HND_ROUTER)
-void ipt_account(FILE *fp, char *interface) {
-	struct in_addr ipaddr, netmask, network;
-	char netaddrnetmask[] = "255.255.255.255/255.255.255.255 ";
-	int unit;
-
-	inet_aton(nvram_safe_get("lan_ipaddr"), &ipaddr);
-	inet_aton(nvram_safe_get("lan_netmask"), &netmask);
-
-	// bitwise AND of ip and netmask gives the network
-	network.s_addr = ipaddr.s_addr & netmask.s_addr;
-
-	sprintf(netaddrnetmask, "%s/%s", inet_ntoa(network), nvram_safe_get("lan_netmask"));
-
-	// If we are provided an interface (usually a VPN interface) then use it as WAN.
-	if (interface){
-		fprintf(fp, "iptables -A ipttolan -i %s -m account --aaddr %s --aname lan -j RETURN\n", interface, netaddrnetmask);
-		fprintf(fp, "iptables -A iptfromlan -o %s -m account --aaddr %s --aname lan -j RETURN\n", interface, netaddrnetmask);
-
-	} else {	// Create rules for every WAN interfaces available
-		fprintf(fp, "-I FORWARD -i br0 -j iptfromlan\n");
-		fprintf(fp, "-I FORWARD -o br0 -j ipttolan\n");
-		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
-			if ((get_dualwan_by_unit(unit) != WANS_DUALWAN_IF_NONE) && (strlen(get_wan_ifname(unit)))) {
-				fprintf(fp, "-A ipttolan -i %s -m account --aaddr %s --aname lan -j RETURN\n", get_wan_ifname(unit), netaddrnetmask);
-				fprintf(fp, "-A iptfromlan -o %s -m account --aaddr %s --aname lan -j RETURN\n", get_wan_ifname(unit), netaddrnetmask);
-			}
-		}
-	}
-}
-
-#endif
-

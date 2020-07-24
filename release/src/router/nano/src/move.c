@@ -1,7 +1,7 @@
 /**************************************************************************
  *   move.c  --  This file is part of GNU nano.                           *
  *                                                                        *
- *   Copyright (C) 1999-2011, 2013-2019 Free Software Foundation, Inc.    *
+ *   Copyright (C) 1999-2011, 2013-2020 Free Software Foundation, Inc.    *
  *   Copyright (C) 2014-2018 Benno Schulenberg                            *
  *                                                                        *
  *   GNU nano is free software: you can redistribute it and/or modify     *
@@ -37,7 +37,7 @@ void to_first_line(void)
 void to_last_line(void)
 {
 	openfile->current = openfile->filebot;
-	openfile->current_x = strlen(openfile->filebot->data);
+	openfile->current_x = (inhelp) ? 0 : strlen(openfile->filebot->data);
 	openfile->placewewant = xplustabs();
 
 	/* Set the last line of the screen as the target for the cursor. */
@@ -75,7 +75,7 @@ size_t proper_x(linestruct *line, size_t *leftedge, bool forward,
 
 #ifndef NANO_TINY
 	if (ISSET(SOFTWRAP) && line->data[index] == '\t' &&
-				((forward && strnlenpt(line->data, index) < *leftedge) ||
+				((forward && wideness(line->data, index) < *leftedge) ||
 				(!forward && column / tabsize == (*leftedge - 1) / tabsize &&
 				column / tabsize < (*leftedge + editwincols - 1) / tabsize))) {
 		index++;
@@ -85,7 +85,7 @@ size_t proper_x(linestruct *line, size_t *leftedge, bool forward,
 	}
 
 	if (ISSET(SOFTWRAP))
-		*leftedge = leftedge_for(strnlenpt(line->data, index), line);
+		*leftedge = leftedge_for(wideness(line->data, index), line);
 #endif
 
 	return index;
@@ -109,7 +109,7 @@ void set_proper_index_and_pww(size_t *leftedge, size_t target, bool forward)
 	openfile->placewewant = *leftedge + target;
 }
 
-/* Move up nearly one screenful. */
+/* Move up almost one screenful. */
 void do_page_up(void)
 {
 	int mustmove = (editwinrows < 3) ? 1 : editwinrows - 2;
@@ -139,7 +139,7 @@ void do_page_up(void)
 	refresh_needed = TRUE;
 }
 
-/* Move down nearly one screenful. */
+/* Move down almost one screenful. */
 void do_page_down(void)
 {
 	int mustmove = (editwinrows < 3) ? 1 : editwinrows - 2;
@@ -192,7 +192,7 @@ void do_para_end(linestruct **line)
 }
 
 /* Move up to first start of a paragraph before the current line. */
-void do_para_begin_void(void)
+void to_para_begin(void)
 {
 	linestruct *was_current = openfile->current;
 
@@ -203,7 +203,7 @@ void do_para_begin_void(void)
 }
 
 /* Move down to just after the first found end of a paragraph. */
-void do_para_end_void(void)
+void to_para_end(void)
 {
 	linestruct *was_current = openfile->current;
 
@@ -222,7 +222,7 @@ void do_para_end_void(void)
 #endif /* ENABLE_JUSTIFY */
 
 /* Move to the preceding block of text. */
-void do_prev_block(void)
+void to_prev_block(void)
 {
 	linestruct *was_current = openfile->current;
 	bool is_text = FALSE, seen_text = FALSE;
@@ -244,7 +244,7 @@ void do_prev_block(void)
 }
 
 /* Move to the next block of text. */
-void do_next_block(void)
+void to_next_block(void)
 {
 	linestruct *was_current = openfile->current;
 	bool is_white = white_string(openfile->current->data);
@@ -278,10 +278,10 @@ void do_prev_word(bool allow_punct)
 		}
 
 		/* Step back one character. */
-		openfile->current_x = move_mbleft(openfile->current->data,
+		openfile->current_x = step_left(openfile->current->data,
 												openfile->current_x);
 
-		if (is_word_mbchar(openfile->current->data + openfile->current_x,
+		if (is_word_char(openfile->current->data + openfile->current_x,
 								allow_punct)) {
 			seen_a_word = TRUE;
 			/* If at the head of a line now, this surely is a word start. */
@@ -296,7 +296,7 @@ void do_prev_word(bool allow_punct)
 
 	if (step_forward)
 		/* Move one character forward again to sit on the start of the word. */
-		openfile->current_x = move_mbright(openfile->current->data,
+		openfile->current_x = step_right(openfile->current->data,
 												openfile->current_x);
 }
 
@@ -305,7 +305,7 @@ void do_prev_word(bool allow_punct)
  * part of a word.  Return TRUE if we started on a word, and FALSE otherwise. */
 bool do_next_word(bool after_ends, bool allow_punct)
 {
-	bool started_on_word = is_word_mbchar(openfile->current->data +
+	bool started_on_word = is_word_char(openfile->current->data +
 								openfile->current_x, allow_punct);
 	bool seen_space = !started_on_word;
 #ifndef NANO_TINY
@@ -324,7 +324,7 @@ bool do_next_word(bool after_ends, bool allow_punct)
 			seen_space = TRUE;
 		} else {
 			/* Step forward one character. */
-			openfile->current_x = move_mbright(openfile->current->data,
+			openfile->current_x = step_right(openfile->current->data,
 												openfile->current_x);
 		}
 
@@ -332,7 +332,7 @@ bool do_next_word(bool after_ends, bool allow_punct)
 		if (after_ends) {
 			/* If this is a word character, continue; else it's a separator,
 			 * and if we've already seen a word, then it's a word end. */
-			if (is_word_mbchar(openfile->current->data + openfile->current_x,
+			if (is_word_char(openfile->current->data + openfile->current_x,
 								allow_punct))
 				seen_word = TRUE;
 			else if (seen_word)
@@ -342,7 +342,7 @@ bool do_next_word(bool after_ends, bool allow_punct)
 		{
 			/* If this is not a word character, then it's a separator; else
 			 * if we've already seen a separator, then it's a word start. */
-			if (!is_word_mbchar(openfile->current->data + openfile->current_x,
+			if (!is_word_char(openfile->current->data + openfile->current_x,
 								allow_punct))
 				seen_space = TRUE;
 			else if (seen_space)
@@ -355,7 +355,7 @@ bool do_next_word(bool after_ends, bool allow_punct)
 
 /* Move to the previous word in the file, treating punctuation as part of a
  * word if the WORD_BOUNDS flag is set, and update the screen afterwards. */
-void do_prev_word_void(void)
+void to_prev_word(void)
 {
 	linestruct *was_current = openfile->current;
 
@@ -367,7 +367,7 @@ void do_prev_word_void(void)
 /* Move to the next word in the file.  If the AFTER_ENDS flag is set, stop
  * at word ends instead of beginnings.  If the WORD_BOUNDS flag is set, treat
  * punctuation as part of a word.  Update the screen afterwards. */
-void do_next_word_void(void)
+void to_next_word(void)
 {
 	linestruct *was_current = openfile->current;
 
@@ -437,7 +437,7 @@ void do_home(void)
 }
 
 /* Move to the end of the current line (or softwrapped chunk).
- * When softwrapping and alredy at the end of a chunk, go to the
+ * When softwrapping and already at the end of a chunk, go to the
  * end of the full line. */
 void do_end(void)
 {
@@ -534,7 +534,7 @@ void do_down(void)
 }
 
 #if !defined(NANO_TINY) || defined(ENABLE_HELP)
-/* Scroll up one line or chunk without scrolling the cursor. */
+/* Scroll up one line or chunk without moving the cursor textwise. */
 void do_scroll_up(void)
 {
 	/* When the top of the file is onscreen, we can't scroll. */
@@ -548,18 +548,18 @@ void do_scroll_up(void)
 		edit_scroll(BACKWARD);
 }
 
-/* Scroll down one line or chunk without scrolling the cursor. */
+/* Scroll down one line or chunk without moving the cursor textwise. */
 void do_scroll_down(void)
 {
 	if (openfile->current_y == 0)
 		do_down();
 
-	if (openfile->edittop->next != NULL
+	if (editwinrows > 1 && (openfile->edittop->next != NULL
 #ifndef NANO_TINY
 				|| chunk_for(openfile->firstcolumn, openfile->edittop) <
 					number_of_chunks_in(openfile->edittop)
 #endif
-										)
+										))
 		edit_scroll(FORWARD);
 }
 #endif
@@ -570,7 +570,7 @@ void do_left(void)
 	linestruct *was_current = openfile->current;
 
 	if (openfile->current_x > 0)
-		openfile->current_x = move_mbleft(openfile->current->data,
+		openfile->current_x = step_left(openfile->current->data,
 												openfile->current_x);
 	else if (openfile->current != openfile->filetop) {
 		openfile->current = openfile->current->prev;
@@ -586,7 +586,7 @@ void do_right(void)
 	linestruct *was_current = openfile->current;
 
 	if (openfile->current->data[openfile->current_x] != '\0')
-		openfile->current_x = move_mbright(openfile->current->data,
+		openfile->current_x = step_right(openfile->current->data,
 												openfile->current_x);
 	else if (openfile->current != openfile->filebot) {
 		openfile->current = openfile->current->next;

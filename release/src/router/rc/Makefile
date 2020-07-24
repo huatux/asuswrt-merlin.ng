@@ -68,7 +68,7 @@ include $(SRCBASE)/.config
 ifeq ($(RTCONFIG_REALTEK),y)
 LDFLAGS = -L$(TOP)/nvram${BCMEX} -lnvram -L$(TOP)/shared -lshared -lcrypt -ldl
 else
-LDFLAGS = -L$(TOP)/nvram${BCMEX}${EX7} -lnvram -L$(TOP)/shared -lshared -lcrypt -L$(TOP)/libbcmcrypto -lbcmcrypto -ldl
+LDFLAGS = -L$(TOP)/nvram${BCMEX}${EX7} -lnvram -L$(TOP)/shared -lshared -lcrypt -ldl
 endif
 ifeq ($(HND_ROUTER),y)
 CFLAGS += -I$(HND_SRC)/userspace/public/include -I$(HND_SRC)/userspace/public/include/linux -I$(HND_SRC)/userspace/private/include
@@ -368,7 +368,7 @@ endif
 ifeq ($(RTCONFIG_OPENVPN),y)
 CFLAGS += -I$(TOP)/libvpn
 LDFLAGS += -L$(TOP)/libvpn -lvpn
-OBJS += openvpn.o ovpn.o
+OBJS += openvpn.o ovpn.o openvpn_am.o
 endif
 
 ifeq ($(RTCONFIG_IPSEC),y)

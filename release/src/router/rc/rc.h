@@ -872,7 +872,6 @@ extern void redirect_nat_setting(void);
 extern void set_load_balance(void);
 #endif
 extern void ip2class(char *lan_ip, char *netmask, char *buf);
-extern void ipt_account(FILE *fp, char *interface);
 #ifdef RTCONFIG_WIFI_SON
 extern void set_cap_apmode_filter(void);
 #endif
@@ -1144,8 +1143,6 @@ extern int is_valid_volname(const char *name);
 extern void restart_lfp(void);
 extern int get_meminfo_item(const char *name);
 extern void setup_timezone(void);
-extern int is_valid_hostname(const char *name);
-extern int is_valid_domainname(const char *name);
 extern void setup_ct_timeout(int connflag);
 extern void setup_udp_timeout(int connflag);
 extern void setup_ftp_conntrack(int port);
@@ -1218,6 +1215,8 @@ extern void start_webdav(void);
 extern void create_custom_passwd(void);
 extern void stop_samba(void);
 extern void start_samba(void);
+extern void stop_wsdd(void);
+extern void start_wsdd(void);
 #endif
 #ifdef RTCONFIG_NFS
 extern void start_nfsd(void);
@@ -1296,15 +1295,19 @@ extern int ovpn_down_main(int argc, char **argv);
 
 // openvpn.c
 #ifdef RTCONFIG_OPENVPN
-extern void start_ovpn_client(int clientNum);
-extern void stop_ovpn_client(int clientNum);
-extern void start_ovpn_server(int serverNum);
-extern void stop_ovpn_server(int serverNum);
 extern void start_ovpn_eas(void);
 extern void stop_ovpn_eas(void);
 extern void run_ovpn_fw_script();
 extern void create_ovpn_passwd();
 extern void stop_ovpn_all();
+
+// openvpn_am.c
+extern void start_ovpn_client(int unit);
+extern void start_ovpn_server(int unit);
+extern void stop_ovpn_client(int unit);
+extern void stop_ovpn_server(int unit);
+extern void ovpn_write_dh(ovpn_sconf_t *sconf, int unit);
+extern int ovpn_is_clientcert_valid(int unit);
 #endif
 
 // wanduck.c

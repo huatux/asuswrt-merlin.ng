@@ -412,6 +412,13 @@ start_igmpproxy(char *wan_ifname)
 #endif
 #endif
 
+#ifdef RTCONFIG_MULTICAST_IPTV
+	if (nvram_get_int("switch_stb_x") > 6 &&
+	    nvram_match("switch_wantag", "movistar") &&
+	    !nvram_match("iptv_ifname", wan_ifname))
+		return;
+#endif
+
 	stop_igmpproxy();
 
 	if (nvram_get_int("udpxy_enable_x")) {
@@ -423,13 +430,6 @@ start_igmpproxy(char *wan_ifname)
 			"-c", nvram_safe_get("udpxy_clients"),
 			"-a", nvram_get("lan_ifname") ? : "br0");
 	}
-
-#ifdef RTCONFIG_MULTICAST_IPTV
-	if (nvram_get_int("switch_stb_x") > 6 &&
-	    nvram_match("switch_wantag", "movistar") &&
-	    !nvram_match("iptv_ifname", wan_ifname))
-		return;
-#endif
 
 #if !defined(HND_ROUTER)
 	if (!nvram_get_int("mr_enable_x"))
@@ -669,10 +669,6 @@ void update_wan_state(char *prefix, int state, int reason)
 		snprintf(tmp, sizeof(tmp), "/var/run/ppp-wan%d.status", unit);
 		unlink(tmp);
 	}
-        else if (state == WAN_STATE_CONNECTED) {
-		sprintf(tmp,"%c",prefix[3]);
-		run_custom_script("wan-start", 0, tmp, NULL);
-        }
 
 #if defined(RTCONFIG_WANRED_LED)
 	switch (state) {
@@ -685,6 +681,43 @@ void update_wan_state(char *prefix, int state, int reason)
 		update_wan_leds(unit);
 	}
 #endif
+
+	sprintf(tmp,"%d", unit);
+
+	switch (state) {
+	case WAN_STATE_INITIALIZING:
+		strcpy(tmp1, "init");
+		break;
+	case WAN_STATE_CONNECTING:
+		strcpy(tmp1, "connecting");
+		break;
+	case WAN_STATE_CONNECTED:
+		strcpy(tmp1, "connected");
+		break;
+	case WAN_STATE_DISCONNECTED:
+		strcpy(tmp1, "disconnected");
+		break;
+	case WAN_STATE_STOPPED:
+		strcpy(tmp1, "stopped");
+		break;
+	case WAN_STATE_DISABLED:
+		strcpy(tmp1, "disabled");
+		break;
+	case WAN_STATE_STOPPING:
+		strcpy(tmp1, "stopping");
+		break;
+	default:
+		sprintf(tmp1, "state %d", state);
+	}
+
+	run_custom_script("wan-event", 0, tmp, tmp1);
+
+	/* For backward/legacy compatibility */
+	if (state == WAN_STATE_CONNECTED) {
+		sprintf(tmp,"%c",prefix[3]);
+		run_custom_script("wan-start", 0, tmp, NULL);
+	}
+
 }
 
 #ifdef RTCONFIG_IPV6
@@ -2154,7 +2187,7 @@ int update_resolvconf(void)
 #endif
 #ifdef RTCONFIG_DNSPRIVACY
 	if (dnspriv_enable) {
-		if (!nvram_get_int("dns_local"))
+		if (!nvram_get_int("dns_local_cache"))
 			fprintf(fp, "nameserver %s\n", "127.0.1.1");
 		fprintf(fp_servers, "server=%s\n", "127.0.1.1");
 	} else
@@ -2495,6 +2528,7 @@ wan_up(const char *pwan_ifname)
 	char ppa_cmd[255] = {0};
 #endif
 	FILE *fp;
+	int i=0;
 
 	/* Value of pwan_ifname can be modfied after do_dns_detect */
 	strlcpy(wan_ifname, pwan_ifname, 16);
@@ -2724,8 +2758,11 @@ wan_up(const char *pwan_ifname)
 	stop_ovpn_all();
 #endif
 
-	/* Sync time */
-	refresh_ntpc();
+	/* Sync time if not already set, or not running a daemon */
+#ifdef RTCONFIG_NTPD
+	if (!nvram_get_int("ntp_ready"))
+#endif
+		refresh_ntpc();
 
 #if !defined(RTCONFIG_MULTIWAN_CFG)
 	if (wan_unit != wan_primary_ifunit()
@@ -2734,11 +2771,13 @@ wan_up(const char *pwan_ifname)
 #endif
 			)
 	{
+		if (nvram_get_int("ntp_ready")) {
 #ifdef RTCONFIG_OPENVPN
-		start_ovpn_eas();
+			start_ovpn_eas();
 #endif
-		stop_ddns();
-		start_ddns();
+			stop_ddns();
+			start_ddns();
+		}
 		return;
 	}
 #endif
@@ -2751,8 +2790,10 @@ wan_up(const char *pwan_ifname)
 	stop_upnp();
 	start_upnp();
 
-	stop_ddns();
-	start_ddns();
+	if (nvram_get_int("ntp_ready")) {
+		stop_ddns();
+		start_ddns();
+	}
 
 #ifdef RTCONFIG_VPNC
 #ifdef RTCONFIG_VPN_FUSION
@@ -2903,7 +2944,9 @@ wan_up(const char *pwan_ifname)
 #endif
 
 #ifdef RTCONFIG_OPENVPN
-	start_ovpn_eas();
+	if (nvram_get_int("ntp_ready")) {
+		start_ovpn_eas();
+	}
 #endif
 
 _dprintf("%s(%s): done.\n", __FUNCTION__, wan_ifname);
